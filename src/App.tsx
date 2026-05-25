@@ -46,7 +46,12 @@ export default function App() {
   // ============ SERVER SYNC ON STARTUP ============
   useEffect(() => {
     downloadFromCloud().then((data) => {
-      if (data && (Array.isArray(data.signals) || Array.isArray(data.trades))) {
+      // Only apply server data if it actually has content — never overwrite local with empty DB
+      const hasContent =
+        (Array.isArray(data?.signals)       && (data.signals as unknown[]).length       > 0) ||
+        (Array.isArray(data?.trades)        && (data.trades  as unknown[]).length        > 0) ||
+        (Array.isArray(data?.pairs)         && (data.pairs   as unknown[]).length         > 0);
+      if (data && hasContent) {
         applyCloudData(data);
         setSignals(getSignals());
         setTrades(getTrades());

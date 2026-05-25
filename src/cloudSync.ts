@@ -56,12 +56,15 @@ export async function uploadToCloud(): Promise<boolean> {
 // ============ DOWNLOAD ============
 export async function downloadFromCloud(): Promise<CloudData | null> {
   try {
+    _syncStatus = 'syncing';
     const res = await fetch('/api/data', { headers: apiHeaders() });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data: CloudData = await res.json();
+    _syncStatus = 'ok';
     return data;
   } catch (err) {
     console.error('[sync] download error:', err);
+    _syncStatus = 'error';
     return null;
   }
 }
