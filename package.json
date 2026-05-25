@@ -1,0 +1,39 @@
+{
+  "name": "ict-terminal",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:server": "tsx watch server/index.ts",
+    "build": "vite build",
+    "start": "tsx server/index.ts",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "clsx": "2.1.1",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "lightweight-charts": "^5.1.0",
+    "lucide-react": "^1.7.0",
+    "pg": "^8.13.3",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "recharts": "^3.8.1",
+    "tailwind-merge": "3.4.0",
+    "tsx": "^4.19.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "4.1.17",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.3",
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.11.13",
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "5.1.1",
+    "tailwindcss": "4.1.17",
+    "typescript": "5.9.3",
+    "vite": "7.2.4"
+  }
+}
