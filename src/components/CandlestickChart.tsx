@@ -438,8 +438,9 @@ export default function CandlestickChart({ symbol, onClose, priceLines, tradeMar
             </div>
             <div className="flex items-center gap-2">
               {tradeMarker.isOpen ? (
-                <span className="px-2 py-0.5 rounded bg-blue-500/20 text-blue-400 text-xs font-medium">
-                  🔴 LIVE
+                <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 text-xs font-medium flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse inline-block" />
+                  LIVE
                 </span>
               ) : (
                 <span className={`px-2 py-0.5 rounded text-xs font-medium ${

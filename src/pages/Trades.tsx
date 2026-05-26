@@ -103,10 +103,13 @@ export default function Trades({ trades, settings, onCloseTrade, onDeleteTrade }
     }
     
     // Build trade marker for entry→exit line
+    // For open trades don't pass exitTime — chart uses last candle automatically.
+    // Passing Date.now() causes a false "out of range" warning because it's
+    // ahead of the last completed candle's timestamp.
     const marker: TradeMarker = {
       entryTime: trade.openTime,
       entryPrice: trade.entryPrice,
-      exitTime: trade.closeTime || Date.now(),
+      exitTime: trade.status === 'open' ? undefined : trade.closeTime,
       exitPrice: trade.closePrice || trade.currentPrice,
       type: trade.type === 'LONG' ? 'long' : 'short',
       isOpen: trade.status === 'open',
