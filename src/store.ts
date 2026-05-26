@@ -55,9 +55,18 @@ export function updateTrade(id: string, updates: Partial<Trade>) {
 }
 
 // Pairs
+const SYMBOL_RENAMES: Record<string, string> = { MATICUSDT: 'POLUSDT' };
+
 export function getPairs(): TradingPair[] {
   const data = localStorage.getItem(KEYS.PAIRS);
-  if (data) return JSON.parse(data);
+  if (data) {
+    const parsed: TradingPair[] = JSON.parse(data);
+    const migrated = parsed.map(p =>
+      SYMBOL_RENAMES[p.symbol] ? { ...p, symbol: SYMBOL_RENAMES[p.symbol], currentPrice: 0 } : p
+    );
+    if (migrated.some((p, i) => p.symbol !== parsed[i].symbol)) savePairs(migrated);
+    return migrated;
+  }
   // Default pairs — τα πιο δημοφιλή ζευγάρια
   const defaults: TradingPair[] = [
     { symbol: 'BTCUSDT', enabled: true, currentPrice: 0, change24h: 0, lastUpdate: 0 },

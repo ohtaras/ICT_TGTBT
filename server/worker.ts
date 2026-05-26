@@ -210,9 +210,14 @@ async function readDB(pool: Pool): Promise<(DBState & { updatedAt: Date }) | nul
     const row = result.rows[0];
     if (!row) return null;
 
-    const pairs: TradingPair[] = Array.isArray(row.pairs) && row.pairs.length > 0
+    const rawPairs: TradingPair[] = Array.isArray(row.pairs) && row.pairs.length > 0
       ? row.pairs
       : DEFAULT_PAIRS;
+    // Auto-migrate renamed Binance symbols so stale DB entries don't break price fetches
+    const SYMBOL_RENAMES: Record<string, string> = { MATICUSDT: 'POLUSDT' };
+    const pairs: TradingPair[] = rawPairs.map(p =>
+      SYMBOL_RENAMES[p.symbol] ? { ...p, symbol: SYMBOL_RENAMES[p.symbol], currentPrice: 0 } : p
+    );
     const settings: Settings = row.settings?.initialBalance
       ? { ...DEFAULT_SETTINGS, ...row.settings }
       : DEFAULT_SETTINGS;
