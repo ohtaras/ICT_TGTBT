@@ -239,6 +239,31 @@ async function writeDB(pool: Pool, data: DBState, expectedUpdatedAt: Date): Prom
   }
 }
 
+// ============ ATOMIC TRADE OPS (no optimistic lock — safe even when ICT scan fires) ============
+
+async function patchTrade(pool: Pool, id: string, patch: Partial<Trade>): Promise<void> {
+  await pool.query(`
+    UPDATE trading_data
+    SET trades = (
+      SELECT COALESCE(jsonb_agg(
+        CASE WHEN t->>'id' = $1 THEN t || $2::jsonb ELSE t END
+      ), '[]'::jsonb)
+      FROM jsonb_array_elements(trades) t
+    ), updated_at = NOW()
+    WHERE id = 1
+  `, [id, JSON.stringify(patch)]);
+}
+
+async function prependTrades(pool: Pool, newTrades: Trade[]): Promise<void> {
+  if (newTrades.length === 0) return;
+  await pool.query(`
+    UPDATE trading_data
+    SET trades = ($1::jsonb || trades),
+        updated_at = NOW()
+    WHERE id = 1
+  `, [JSON.stringify(newTrades)]);
+}
+
 // ============ PRICE CHECK (every 15s) ============
 let priceCheckRunning = false;
 
@@ -269,6 +294,8 @@ async function runPriceCheck(pool: Pool): Promise<void> {
 
     // Check SL/TP on open trades + apply funding
     let tradesChanged = false;
+    const tradesToClose: { id: string; patch: Partial<Trade> }[] = [];
+
     const updatedTrades = db.trades.map(trade => {
       if (trade.status !== 'open') return trade;
       const d = priceMap.get(trade.pair);
@@ -281,8 +308,8 @@ async function runPriceCheck(pool: Pool): Promise<void> {
       const fundingPeriodsElapsed = Math.floor((Date.now() - lastFundingTime) / FUNDING_INTERVAL);
       if (fundingRate > 0 && fundingPeriodsElapsed > 0) {
         const periodFunding = trade.type === 'LONG'
-          ? price * trade.size * fundingRate * fundingPeriodsElapsed   // LONG pays
-          : -(price * trade.size * fundingRate * fundingPeriodsElapsed); // SHORT receives
+          ? price * trade.size * fundingRate * fundingPeriodsElapsed
+          : -(price * trade.size * fundingRate * fundingPeriodsElapsed);
         fundingPaid = parseFloat((fundingPaid + periodFunding).toFixed(4));
         lastFundingTime = lastFundingTime + fundingPeriodsElapsed * FUNDING_INTERVAL;
         tradesChanged = true;
@@ -298,7 +325,6 @@ async function runPriceCheck(pool: Pool): Promise<void> {
           ? trade.liquidationPrice
           : trade.sl;
 
-        // Closing fee
         const closingFee = parseFloat((closePrice * trade.size * feeRate).toFixed(4));
         const totalFeePaid = parseFloat((feePaid + closingFee).toFixed(4));
 
@@ -311,15 +337,19 @@ async function runPriceCheck(pool: Pool): Promise<void> {
         const closePnl = parseFloat((pricePnl - totalFeePaid - fundingPaid).toFixed(4));
         const notional  = trade.entryPrice * trade.size;
 
-        console.log(`[worker] ${exitResult.toUpperCase()}: ${trade.pair} ${trade.type} PnL $${closePnl.toFixed(2)} (fees $${totalFeePaid.toFixed(2)} funding $${fundingPaid.toFixed(2)})`);
-        return {
-          ...trade, currentPrice: price,
+        const closedPatch: Partial<Trade> = {
+          currentPrice: price,
           status: exitResult as Trade['status'],
           closeTime: Date.now(), closePrice,
           feePaid: totalFeePaid, fundingPaid, lastFundingTime,
           pnl: closePnl,
           pnlPercent: parseFloat(((closePnl / notional) * 100).toFixed(2)),
         };
+
+        // Queue for atomic write (immune to optimistic lock race with ICT scan)
+        tradesToClose.push({ id: trade.id, patch: closedPatch });
+        console.log(`[worker] ${exitResult.toUpperCase()}: ${trade.pair} ${trade.type} PnL $${closePnl.toFixed(2)} (fees $${totalFeePaid.toFixed(2)} funding $${fundingPaid.toFixed(2)})`);
+        return { ...trade, ...closedPatch };
       }
 
       // Running P&L (net of fees + funding already paid)
@@ -336,19 +366,25 @@ async function runPriceCheck(pool: Pool): Promise<void> {
       };
     });
 
+    // ATOMIC closures — written directly, no optimistic lock.
+    // Guaranteed to succeed even if ICT scan fires concurrently.
+    for (const { id, patch } of tradesToClose) {
+      await patchTrade(pool, id, patch);
+    }
+
     // Update equity history on trade close
     let updatedEquity = db.equityHistory;
-    if (tradesChanged) {
+    if (tradesToClose.length > 0) {
       const balance = getBalance(updatedTrades, db.settings.initialBalance);
       updatedEquity = [...db.equityHistory, { time: Date.now(), equity: balance }].slice(-500);
     }
 
     // Check pending signals for triggers
     let signalsChanged = false;
-    // Track pairs that got a new trade opened THIS cycle (fixes double-trade bug)
     const newlyOpenedPairs = new Set(
       updatedTrades.filter(t => t.status === 'open').map(t => t.pair)
     );
+    const tradesToOpen: Trade[] = [];
 
     const updatedSignals = db.signals.map(sig => {
       if (sig.status !== 'pending') return sig;
@@ -404,13 +440,22 @@ async function runPriceCheck(pool: Pool): Promise<void> {
         status: 'open', openTime: Date.now(),
       };
 
+      tradesToOpen.push(newTrade);
       updatedTrades.unshift(newTrade);
-      newlyOpenedPairs.add(sig.pair); // prevent a 2nd signal for same pair this cycle
+      newlyOpenedPairs.add(sig.pair);
       console.log(`[worker] TRADE OPENED: ${sig.pair} ${newTrade.type} @ ${newTrade.entryPrice} size=${size}`);
 
       return { ...sig, status: 'triggered' as const, triggeredAt: Date.now() };
     });
 
+    // ATOMIC trade opens — prepend directly, no optimistic lock.
+    if (tradesToOpen.length > 0) {
+      await prependTrades(pool, tradesToOpen);
+    }
+
+    // Non-critical write: pair prices, equity, signal status, running P&L.
+    // May be skipped if ICT scan changed updated_at — that's OK.
+    // Critical ops (closures, opens) already committed above.
     await writeDB(pool, {
       signals:       signalsChanged ? updatedSignals : db.signals,
       trades:        updatedTrades,
