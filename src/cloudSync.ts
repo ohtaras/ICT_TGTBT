@@ -46,8 +46,24 @@ export function applyCloudData(data: CloudData) {
     localStorage.setItem('ict_signals', JSON.stringify(data.signals));
   if (Array.isArray(data.trades))
     localStorage.setItem('ict_trades', JSON.stringify(data.trades));
-  if (Array.isArray(data.pairs))
-    localStorage.setItem('ict_pairs', JSON.stringify(data.pairs));
+  if (Array.isArray(data.pairs)) {
+    // Preserve live prices already in localStorage — server may have currentPrice=0
+    // if the worker hasn't updated yet, but the browser already fetched from Binance
+    try {
+      const cached: { symbol: string; currentPrice: number; change24h: number }[] =
+        JSON.parse(localStorage.getItem('ict_pairs') || '[]');
+      const priceCache = new Map(cached.map(p => [p.symbol, { currentPrice: p.currentPrice, change24h: p.change24h }]));
+      const merged = data.pairs.map((p: { symbol: string; currentPrice: number; change24h: number }) => {
+        const c = priceCache.get(p.symbol);
+        return c && c.currentPrice > 0 && p.currentPrice === 0
+          ? { ...p, currentPrice: c.currentPrice, change24h: c.change24h }
+          : p;
+      });
+      localStorage.setItem('ict_pairs', JSON.stringify(merged));
+    } catch {
+      localStorage.setItem('ict_pairs', JSON.stringify(data.pairs));
+    }
+  }
   if (data.settings)
     localStorage.setItem('ict_settings', JSON.stringify(data.settings));
   if (Array.isArray(data.equityHistory))

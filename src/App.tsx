@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import Signals from './pages/Signals';
@@ -26,6 +26,7 @@ import {
   updateSettings as updateServerSettings,
   updatePairs as updateServerPairs,
 } from './cloudSync';
+import { fetchAllPrices } from './api/binance';
 import type { Signal, Trade, TradingPair, Settings, PortfolioStats } from './types';
 
 const SERVER_POLL_INTERVAL = 5_000; // 5 seconds
@@ -38,6 +39,10 @@ export default function App() {
   const [settings, setSettings]         = useState<Settings>(getSettings);
   const [stats, setStats]               = useState<PortfolioStats>(getPortfolioStats);
   const [equityHistory, setEquityHistory] = useState(getEquityHistory);
+
+  // Ref so the price-fetch interval always sees the latest pairs without re-creating
+  const pairsRef = useRef<TradingPair[]>([]);
+  useEffect(() => { pairsRef.current = pairs; }, [pairs]);
 
   const refreshState = useCallback(() => {
     setSignals(getSignals());
@@ -63,6 +68,26 @@ export default function App() {
     const timer = setInterval(syncFromServer, SERVER_POLL_INTERVAL);
     return () => clearInterval(timer);
   }, [syncFromServer]);
+
+  // Live price fetching directly from Binance (browser → Binance, bypasses server)
+  // Updates global pairs state so Dashboard + Pairs page both show live prices
+  useEffect(() => {
+    const fetchLive = async () => {
+      const current = pairsRef.current.filter(p => p.enabled);
+      if (current.length === 0) return;
+      const map = await fetchAllPrices(current);
+      if (map.size === 0) return;
+      setPairs(prev => prev.map(p => {
+        const live = map.get(p.symbol);
+        return live && live.price > 0
+          ? { ...p, currentPrice: live.price, change24h: live.change24h, lastUpdate: Date.now() }
+          : p;
+      }));
+    };
+    fetchLive();
+    const t = setInterval(fetchLive, 5_000);
+    return () => clearInterval(t);
+  }, []); // runs once; uses pairsRef for latest pairs
 
   useEffect(() => {
     setStats(getPortfolioStats());
