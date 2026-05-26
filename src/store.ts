@@ -137,6 +137,8 @@ export function getSettings(): Settings {
     riskPerTrade: 2,
     initialBalance: 10000,
     leverage: 10,
+    feeRate: 0.04,
+    fundingRate: 0.01,
     dataSource: 'binance' as const,
   };
 }

@@ -35,6 +35,8 @@ export default function SettingsPage({ settings, onSave, onCloudRestore }: Setti
   const [riskPerTrade, setRiskPerTrade]     = useState(settings.riskPerTrade);
   const [initialBalance, setInitialBalance] = useState(settings.initialBalance);
   const [leverage, setLeverage]             = useState(settings.leverage ?? 10);
+  const [feeRate, setFeeRate]               = useState(settings.feeRate ?? 0.04);
+  const [fundingRate, setFundingRate]       = useState(settings.fundingRate ?? 0.01);
   const [testing, setTesting]               = useState(false);
   const [testResult, setTestResult]         = useState<boolean | null>(null);
   const [saved, setSaved]                   = useState(false);
@@ -59,7 +61,7 @@ export default function SettingsPage({ settings, onSave, onCloudRestore }: Setti
   }, [settings]);
 
   const handleSave = () => {
-    onSave({ ...settings, riskPerTrade, initialBalance, leverage, cloudSyncEnabled: cloudEnabled });
+    onSave({ ...settings, riskPerTrade, initialBalance, leverage, feeRate, fundingRate, cloudSyncEnabled: cloudEnabled });
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
   };
@@ -374,6 +376,53 @@ export default function SettingsPage({ settings, onSave, onCloudRestore }: Setti
               <p>• Liquidation αν η τιμή κινηθεί <span className="font-bold text-red-400">{(100 / leverage).toFixed(1)}%</span> εναντίον σου</p>
               <p>• Margin ανά trade ≈ <span className="font-bold">${(initialBalance * (riskPerTrade / 100) * 2.5).toFixed(0)}</span> (εκτίμηση)</p>
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ============ TRADING COSTS ============ */}
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+        <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">
+          💸 Trading Costs (Futures Simulation)
+        </h3>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-1.5">
+              Taker Fee Rate: <span className="text-amber-400 font-bold">{feeRate}%</span>
+              <span className="text-gray-500 ml-2 text-xs">(Binance default: 0.04%)</span>
+            </label>
+            <input
+              type="number"
+              value={feeRate}
+              onChange={(e) => setFeeRate(parseFloat(e.target.value) || 0)}
+              min={0}
+              max={1}
+              step={0.01}
+              className="w-full px-4 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm focus:outline-none focus:border-amber-500 transition-colors"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Χρεώνεται στο άνοιγμα ΚΑΙ κλείσιμο κάθε trade.
+              Σε $10,000 notional → <span className="text-amber-400">${(10000 * feeRate / 100 * 2).toFixed(2)} ανά trade</span>
+            </p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-1.5">
+              Funding Rate (ανά 8ώρο): <span className="text-amber-400 font-bold">{fundingRate}%</span>
+              <span className="text-gray-500 ml-2 text-xs">(Binance default: ~0.01%)</span>
+            </label>
+            <input
+              type="number"
+              value={fundingRate}
+              onChange={(e) => setFundingRate(parseFloat(e.target.value) || 0)}
+              min={0}
+              max={1}
+              step={0.001}
+              className="w-full px-4 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm focus:outline-none focus:border-amber-500 transition-colors"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              LONG πληρώνει κάθε 8 ώρες • SHORT λαμβάνει • 0 = απενεργοποιημένο.
+              Ετήσιο κόστος LONG: <span className="text-amber-400">{(fundingRate * 3 * 365).toFixed(1)}%</span>
+            </p>
           </div>
         </div>
       </div>

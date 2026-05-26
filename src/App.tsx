@@ -112,15 +112,22 @@ export default function App() {
         const pairData = priceMap.get(trade.pair);
         if (!pairData || pairData.price <= 0) return trade;
 
-        const currentPrice = pairData.price;
-        const pnl =
-          trade.type === 'LONG'
-            ? (currentPrice - trade.entryPrice) * trade.size
-            : (trade.entryPrice - currentPrice) * trade.size;
-        const pnlPercent =
-          trade.type === 'LONG'
-            ? ((currentPrice - trade.entryPrice) / trade.entryPrice) * 100
-            : ((trade.entryPrice - currentPrice) / trade.entryPrice) * 100;
+        const currentPrice   = pairData.price;
+        const feeRateDecimal = (settingsRef.current.feeRate    ?? 0.04) / 100;
+        const fundingRateDec = (settingsRef.current.fundingRate ?? 0.01) / 100;
+        const FUNDING_INTERVAL = 8 * 60 * 60 * 1000;
+
+        let { feePaid, fundingPaid, lastFundingTime } = trade;
+
+        // Apply funding
+        const fundingPeriods = Math.floor((Date.now() - (lastFundingTime ?? trade.openTime)) / FUNDING_INTERVAL);
+        if (fundingRateDec > 0 && fundingPeriods > 0) {
+          const periodFunding = trade.type === 'LONG'
+            ? currentPrice * trade.size * fundingRateDec * fundingPeriods
+            : -(currentPrice * trade.size * fundingRateDec * fundingPeriods);
+          fundingPaid = parseFloat(((fundingPaid ?? 0) + periodFunding).toFixed(4));
+          lastFundingTime = (lastFundingTime ?? trade.openTime) + fundingPeriods * FUNDING_INTERVAL;
+        }
 
         const exitResult = checkTradeExit(trade.type, currentPrice, trade.sl, trade.tp, trade.liquidationPrice ?? 0);
 
@@ -131,11 +138,14 @@ export default function App() {
             : exitResult === 'liquidated'
             ? trade.liquidationPrice ?? trade.sl
             : trade.sl;
-          const closePnl = exitResult === 'liquidated'
+          const closingFee   = parseFloat((closePrice * trade.size * feeRateDecimal).toFixed(4));
+          const totalFeePaid = parseFloat(((feePaid ?? 0) + closingFee).toFixed(4));
+          const pricePnl = exitResult === 'liquidated'
             ? -(trade.entryPrice * trade.size) / (trade.leverage ?? 1)
             : trade.type === 'LONG'
             ? (closePrice - trade.entryPrice) * trade.size
             : (trade.entryPrice - closePrice) * trade.size;
+          const closePnl = parseFloat((pricePnl - totalFeePaid - (fundingPaid ?? 0)).toFixed(4));
 
           // Add equity point
           const currentStats = getPortfolioStats();
@@ -154,14 +164,26 @@ export default function App() {
             status: exitResult as Trade['status'],
             closeTime: Date.now(),
             closePrice,
+            feePaid: totalFeePaid,
+            fundingPaid,
+            lastFundingTime,
           };
         }
+
+        const pricePnlRunning = trade.type === 'LONG'
+          ? (currentPrice - trade.entryPrice) * trade.size
+          : (trade.entryPrice - currentPrice) * trade.size;
+        const netPnl    = parseFloat((pricePnlRunning - (feePaid ?? 0) - (fundingPaid ?? 0)).toFixed(4));
+        const notional  = trade.entryPrice * trade.size;
 
         return {
           ...trade,
           currentPrice,
-          pnl: parseFloat(pnl.toFixed(4)),
-          pnlPercent: parseFloat(pnlPercent.toFixed(2)),
+          feePaid: feePaid ?? 0,
+          fundingPaid: fundingPaid ?? 0,
+          lastFundingTime: lastFundingTime ?? trade.openTime,
+          pnl: netPnl,
+          pnlPercent: parseFloat(((netPnl / notional) * 100).toFixed(2)),
         };
       });
 
@@ -220,6 +242,11 @@ export default function App() {
             ).toPrecision(8));
 
             if (size > 0) {
+              const feeRateDecimal = (settingsRef.current.feeRate ?? 0.04) / 100;
+              const openingFee     = parseFloat((sig.entry * size * feeRateDecimal).toFixed(4));
+              const roundedSize    = parseFloat(size.toFixed(6));
+              const notional       = sig.entry * roundedSize;
+
               const newTrade: Trade = {
                 id: generateId(),
                 signalId: sig.id,
@@ -231,9 +258,12 @@ export default function App() {
                 tp: sig.tp,
                 liquidationPrice,
                 leverage,
-                size: parseFloat(size.toFixed(6)),
-                pnl: 0,
-                pnlPercent: 0,
+                size: roundedSize,
+                feePaid: openingFee,
+                fundingPaid: 0,
+                lastFundingTime: Date.now(),
+                pnl: -openingFee,
+                pnlPercent: parseFloat(((-openingFee / notional) * 100).toFixed(2)),
                 status: 'open',
                 openTime: Date.now(),
               };

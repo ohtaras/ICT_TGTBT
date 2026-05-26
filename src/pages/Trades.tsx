@@ -465,7 +465,7 @@ function TradeCard({
         <div className="bg-gray-800/50 rounded-lg p-2 ml-8 border border-gray-700/50">
           <div className="flex items-center gap-1 text-xs text-gray-400 mb-2">
             <DollarSign className="w-3 h-3" />
-            <span className="font-medium">Position ({settings.riskPerTrade}% risk)</span>
+            <span className="font-medium">Position ({settings.riskPerTrade}% risk · {settings.leverage ?? 10}x)</span>
           </div>
           <div className="grid grid-cols-3 gap-2 text-xs">
             <div>
@@ -481,6 +481,20 @@ function TradeCard({
               <p className="font-mono font-bold text-red-400">-${metrics.potentialLoss.toFixed(2)}</p>
             </div>
           </div>
+          {((trade.feePaid ?? 0) > 0 || (trade.fundingPaid ?? 0) !== 0) && (
+            <div className="grid grid-cols-2 gap-2 text-xs mt-2 pt-2 border-t border-gray-700/50">
+              <div>
+                <p className="text-gray-500">Fees paid</p>
+                <p className="font-mono text-orange-400">-${(trade.feePaid ?? 0).toFixed(2)}</p>
+              </div>
+              <div>
+                <p className="text-gray-500">Funding</p>
+                <p className={`font-mono ${(trade.fundingPaid ?? 0) >= 0 ? 'text-orange-400' : 'text-emerald-400'}`}>
+                  {(trade.fundingPaid ?? 0) >= 0 ? '-' : '+'}${Math.abs(trade.fundingPaid ?? 0).toFixed(2)}
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Timestamp row */}
