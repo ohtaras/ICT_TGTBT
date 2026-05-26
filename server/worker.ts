@@ -201,7 +201,9 @@ async function readDB(pool: Pool): Promise<(DBState & { updatedAt: Date }) | nul
     const row = result.rows[0];
     if (!row) return null;
 
-    const pairs: TradingPair[]  = Array.isArray(row.pairs) ? row.pairs : [];
+    const pairs: TradingPair[] = Array.isArray(row.pairs) && row.pairs.length > 0
+      ? row.pairs
+      : DEFAULT_PAIRS;
     const settings: Settings = row.settings?.initialBalance
       ? { ...DEFAULT_SETTINGS, ...row.settings }
       : DEFAULT_SETTINGS;
@@ -544,8 +546,8 @@ export function startWorker(pool: Pool): void {
   // Initial run immediately
   runICTScan(pool).then(() => runPriceCheck(pool));
 
-  setInterval(() => runPriceCheck(pool), 15_000);
-  setInterval(() => runICTScan(pool),    60_000);
+  setInterval(() => runPriceCheck(pool),  5_000);
+  setInterval(() => runICTScan(pool),    30_000);
 
-  console.log('[worker] Price check every 15s | ICT scan every 60s');
+  console.log('[worker] Price check every 5s | ICT scan every 30s');
 }

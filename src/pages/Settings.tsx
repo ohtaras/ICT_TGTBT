@@ -22,10 +22,9 @@ import {
 interface SettingsProps {
   settings: SettingsType;
   onSave: (settings: SettingsType) => void;
-  onCloudRestore?: () => void;
 }
 
-export default function SettingsPage({ settings, onSave, onCloudRestore }: SettingsProps) {
+export default function SettingsPage({ settings, onSave }: SettingsProps) {
   const [riskPerTrade, setRiskPerTrade]     = useState(settings.riskPerTrade);
   const [initialBalance, setInitialBalance] = useState(settings.initialBalance);
   const [leverage, setLeverage]             = useState(settings.leverage ?? 10);

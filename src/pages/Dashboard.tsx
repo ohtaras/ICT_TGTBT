@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { PortfolioStats, Signal, Trade, TradingPair } from '../types';
 import CandlestickChart, { PriceLine } from '../components/CandlestickChart';
+import { getSyncInfo } from '../cloudSync';
 import {
   TrendingUp,
   TrendingDown,
@@ -10,8 +11,7 @@ import {
   AlertTriangle,
   ArrowUpRight,
   ArrowDownRight,
-  Cloud,
-  CloudOff,
+  Server,
   BarChart3,
 } from 'lucide-react';
 
@@ -22,7 +22,6 @@ interface DashboardProps {
   pairs: TradingPair[];
   autoTrading: boolean;
   onToggleAutoTrading: () => void;
-  cloudEnabled?: boolean;
 }
 
 export default function Dashboard({
@@ -32,8 +31,8 @@ export default function Dashboard({
   pairs,
   autoTrading,
   onToggleAutoTrading,
-  cloudEnabled,
 }: DashboardProps) {
+  const syncInfo = getSyncInfo();
   const recentSignals = signals.slice(0, 5);
   const openTrades = trades.filter((t) => t.status === 'open');
   const activePairs = pairs.filter((p) => p.enabled);
@@ -92,20 +91,16 @@ export default function Dashboard({
           <div className="flex flex-wrap items-center gap-3 mt-1">
             <p className="text-xs text-gray-500 flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse inline-block" />
-              Binance Data Feed • Τιμές κάθε 15s • ICT Scan κάθε 60s
+              Binance Data Feed • Τιμές κάθε 5s • ICT Scan κάθε 30s
             </p>
-            <p className={`text-xs flex items-center gap-1.5 ${cloudEnabled ? 'text-cyan-400' : 'text-gray-600'}`}>
-              {cloudEnabled ? (
-                <>
-                  <Cloud className="w-3 h-3" />
-                  Cloud Sync ON
-                </>
-              ) : (
-                <>
-                  <CloudOff className="w-3 h-3" />
-                  Cloud Off
-                </>
-              )}
+            <p className={`text-xs flex items-center gap-1.5 ${
+              syncInfo.status === 'ok' ? 'text-cyan-400' :
+              syncInfo.status === 'error' ? 'text-red-400' : 'text-gray-500'
+            }`}>
+              <Server className="w-3 h-3" />
+              {syncInfo.status === 'ok' ? 'Server Connected' :
+               syncInfo.status === 'error' ? 'Server Error' :
+               syncInfo.status === 'syncing' ? 'Syncing…' : 'Connecting…'}
             </p>
           </div>
         </div>
