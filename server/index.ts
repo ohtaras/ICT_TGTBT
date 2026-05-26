@@ -20,18 +20,6 @@ const pool = new Pool({
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
-// Optional API key auth — set API_KEY env var on Railway to enable
-const API_KEY = process.env.API_KEY;
-if (API_KEY) {
-  app.use('/api', (req: Request, res: Response, next: NextFunction) => {
-    if (req.headers['x-api-key'] !== API_KEY) {
-      res.status(401).json({ error: 'Unauthorized' });
-      return;
-    }
-    next();
-  });
-}
-
 async function initDb() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS trading_data (
@@ -51,6 +39,62 @@ async function initDb() {
 app.get('/api/health', (_req: Request, res: Response) => {
   res.json({ ok: true, timestamp: new Date().toISOString() });
 });
+
+// Public read-only status endpoint — no auth required
+app.get('/api/status', async (_req: Request, res: Response) => {
+  if (!process.env.DATABASE_URL) {
+    res.json({ ok: true, db: false, message: 'No database — data lives in browser localStorage' });
+    return;
+  }
+  try {
+    const result = await pool.query('SELECT signals, trades, pairs, settings, equity_history, updated_at FROM trading_data WHERE id = 1');
+    const row = result.rows[0];
+    if (!row) { res.json({ ok: true, db: true, data: null }); return; }
+
+    const signals = row.signals ?? [];
+    const trades  = row.trades  ?? [];
+    const pairs   = row.pairs   ?? [];
+
+    const openTrades   = trades.filter((t: { status: string }) => t.status === 'open');
+    const closedTrades = trades.filter((t: { status: string }) => t.status === 'won' || t.status === 'lost');
+    const wonTrades    = trades.filter((t: { status: string }) => t.status === 'won');
+    const pendingSignals = signals.filter((s: { status: string }) => s.status === 'pending');
+
+    res.json({
+      ok: true,
+      db: true,
+      updatedAt: row.updated_at,
+      summary: {
+        totalSignals:   signals.length,
+        pendingSignals: pendingSignals.length,
+        openTrades:     openTrades.length,
+        closedTrades:   closedTrades.length,
+        winRate:        closedTrades.length > 0 ? `${((wonTrades.length / closedTrades.length) * 100).toFixed(1)}%` : 'N/A',
+        activePairs:    (pairs as { enabled: boolean }[]).filter(p => p.enabled).length,
+        autoTrading:    (row.settings as { autoTrading?: boolean })?.autoTrading ?? false,
+        balance:        (row.settings as { initialBalance?: number })?.initialBalance ?? 0,
+      },
+      openTrades,
+      pendingSignals,
+      pairs,
+    });
+  } catch (err) {
+    console.error('[status] error:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// Optional API key auth — set API_KEY env var on Railway to enable
+const API_KEY = process.env.API_KEY;
+if (API_KEY) {
+  app.use('/api', (req: Request, res: Response, next: NextFunction) => {
+    if (req.headers['x-api-key'] !== API_KEY) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+    next();
+  });
+}
 
 app.get('/api/data', async (_req: Request, res: Response) => {
   if (!process.env.DATABASE_URL) {
