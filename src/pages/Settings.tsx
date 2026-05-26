@@ -34,6 +34,7 @@ interface SettingsProps {
 export default function SettingsPage({ settings, onSave, onCloudRestore }: SettingsProps) {
   const [riskPerTrade, setRiskPerTrade]     = useState(settings.riskPerTrade);
   const [initialBalance, setInitialBalance] = useState(settings.initialBalance);
+  const [leverage, setLeverage]             = useState(settings.leverage ?? 10);
   const [testing, setTesting]               = useState(false);
   const [testResult, setTestResult]         = useState<boolean | null>(null);
   const [saved, setSaved]                   = useState(false);
@@ -58,7 +59,7 @@ export default function SettingsPage({ settings, onSave, onCloudRestore }: Setti
   }, [settings]);
 
   const handleSave = () => {
-    onSave({ ...settings, riskPerTrade, initialBalance, cloudSyncEnabled: cloudEnabled });
+    onSave({ ...settings, riskPerTrade, initialBalance, leverage, cloudSyncEnabled: cloudEnabled });
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
   };
@@ -346,6 +347,33 @@ export default function SettingsPage({ settings, onSave, onCloudRestore }: Setti
             <p className="text-xs text-gray-500 mt-1">
               Αρχικό balance για υπολογισμό P&L (virtual portfolio)
             </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-1.5">
+              Leverage: <span className="text-amber-400 font-bold">{leverage}x</span>
+            </label>
+            <input
+              type="range"
+              value={leverage}
+              onChange={(e) => setLeverage(parseInt(e.target.value))}
+              min={1}
+              max={125}
+              step={1}
+              className="w-full accent-amber-400"
+            />
+            <div className="flex justify-between text-xs text-gray-500 mt-1">
+              <span>1x (spot-like)</span>
+              <span>10x</span>
+              <span>50x</span>
+              <span>125x (max)</span>
+            </div>
+            <div className="mt-2 p-3 rounded-lg border text-xs space-y-1 bg-amber-500/5 border-amber-500/20 text-amber-200">
+              <p>Με {leverage}x leverage:</p>
+              <p>• Max notional: <span className="font-bold">${(initialBalance * leverage).toLocaleString()}</span></p>
+              <p>• Liquidation αν η τιμή κινηθεί <span className="font-bold text-red-400">{(100 / leverage).toFixed(1)}%</span> εναντίον σου</p>
+              <p>• Margin ανά trade ≈ <span className="font-bold">${(initialBalance * (riskPerTrade / 100) * 2.5).toFixed(0)}</span> (εκτίμηση)</p>
+            </div>
           </div>
         </div>
       </div>

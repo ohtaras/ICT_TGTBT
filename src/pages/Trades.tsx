@@ -455,6 +455,10 @@ function TradeCard({
           <span>Current: <span className="text-white font-mono">${trade.currentPrice.toFixed(trade.currentPrice < 1 ? 6 : 2)}</span></span>
           <span>SL: <span className="text-red-400 font-mono">${trade.sl.toFixed(trade.sl < 1 ? 6 : 2)}</span></span>
           <span>TP: <span className="text-emerald-400 font-mono">${trade.tp.toFixed(trade.tp < 1 ? 6 : 2)}</span></span>
+          {trade.liquidationPrice > 0 && (
+            <span>LIQ: <span className="text-orange-400 font-mono font-bold">${trade.liquidationPrice.toFixed(trade.liquidationPrice < 1 ? 6 : 2)}</span></span>
+          )}
+          {trade.leverage && <span className="text-purple-400 font-bold">{trade.leverage}x</span>}
         </div>
 
         {/* Risk Metrics */}
@@ -550,10 +554,12 @@ function ClosedTradeCard({
                   ? 'bg-emerald-500/20 text-emerald-400'
                   : trade.status === 'lost'
                   ? 'bg-red-500/20 text-red-400'
+                  : trade.status === 'liquidated'
+                  ? 'bg-orange-500/20 text-orange-400'
                   : 'bg-gray-500/20 text-gray-400'
               }`}
             >
-              {trade.status === 'won' ? '✅ WON' : trade.status === 'lost' ? '❌ LOST' : '⚙️ MANUAL'}
+              {trade.status === 'won' ? '✅ WON' : trade.status === 'lost' ? '❌ LOST' : trade.status === 'liquidated' ? '💥 LIQUIDATED' : '⚙️ MANUAL'}
             </span>
             <BarChart3 className="w-3.5 h-3.5 text-gray-600" />
           </div>

@@ -126,19 +126,22 @@ export function checkSignalTrigger(signal: Signal, currentPrice: number): boolea
 }
 
 /**
- * Check if an open trade hits SL or TP
+ * Check if an open trade hits SL, TP, or Liquidation
  */
 export function checkTradeExit(
   type: 'LONG' | 'SHORT',
   currentPrice: number,
   sl: number,
-  tp: number
-): 'won' | 'lost' | null {
+  tp: number,
+  liquidationPrice: number,
+): 'won' | 'lost' | 'liquidated' | null {
   if (type === 'LONG') {
     if (currentPrice >= tp) return 'won';
+    if (liquidationPrice > 0 && currentPrice <= liquidationPrice) return 'liquidated';
     if (currentPrice <= sl) return 'lost';
   } else {
     if (currentPrice <= tp) return 'won';
+    if (liquidationPrice > 0 && currentPrice >= liquidationPrice) return 'liquidated';
     if (currentPrice >= sl) return 'lost';
   }
   return null;
