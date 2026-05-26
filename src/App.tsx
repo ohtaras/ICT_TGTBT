@@ -28,7 +28,7 @@ import {
 } from './cloudSync';
 import type { Signal, Trade, TradingPair, Settings, PortfolioStats } from './types';
 
-const SERVER_POLL_INTERVAL = 15_000; // 15 seconds
+const SERVER_POLL_INTERVAL = 5_000; // 5 seconds
 
 export default function App() {
   const [page, setPage] = useState('dashboard');

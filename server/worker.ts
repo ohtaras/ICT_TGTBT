@@ -544,8 +544,8 @@ export function startWorker(pool: Pool): void {
   // Initial run immediately
   runICTScan(pool).then(() => runPriceCheck(pool));
 
-  setInterval(() => runPriceCheck(pool), 15_000);
-  setInterval(() => runICTScan(pool),    60_000);
+  setInterval(() => runPriceCheck(pool),  5_000);
+  setInterval(() => runICTScan(pool),    30_000);
 
-  console.log('[worker] Price check every 15s | ICT scan every 60s');
+  console.log('[worker] Price check every 5s | ICT scan every 30s');
 }
