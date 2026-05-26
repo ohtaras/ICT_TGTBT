@@ -131,7 +131,6 @@ export function getSettings(): Settings {
     leverage: 10,
     feeRate: 0.04,
     fundingRate: 0.01,
-    dataSource: 'binance' as const,
   };
 }
 
@@ -191,6 +190,3 @@ export function getPortfolioStats(): PortfolioStats {
   };
 }
 
-export function generateId(): string {
-  return Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
-}

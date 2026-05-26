@@ -52,8 +52,6 @@ export interface Settings {
   leverage: number;
   feeRate: number;
   fundingRate: number;
-  dataSource: 'binance';
-  cloudSyncEnabled?: boolean;
 }
 
 export interface Candle {

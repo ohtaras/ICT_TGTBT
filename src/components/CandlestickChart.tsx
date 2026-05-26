@@ -218,28 +218,13 @@ export default function CandlestickChart({ symbol, onClose, priceLines, tradeMar
         let exitCandle = candles[candles.length - 1];
         
         if (entryTime) {
-          // Find the candle CLOSEST to entry time
           const entryCandleIdx = findClosestCandle(entryTime);
           entryCandle = candles[entryCandleIdx];
-          
-          // Log for debugging
-          console.log('📍 Entry placement:', {
-            tradeTime: new Date(entryTime).toLocaleString(),
-            candleTime: new Date(entryCandle.time).toLocaleString(),
-            diffMinutes: Math.round(Math.abs(entryCandle.time - entryTime) / 60000)
-          });
         }
-        
+
         if (exitTime) {
-          // Find the candle CLOSEST to exit time
           const exitCandleIdx = findClosestCandle(exitTime);
           exitCandle = candles[exitCandleIdx];
-          
-          console.log('📤 Exit placement:', {
-            tradeTime: new Date(exitTime).toLocaleString(),
-            candleTime: new Date(exitCandle.time).toLocaleString(),
-            diffMinutes: Math.round(Math.abs(exitCandle.time - exitTime) / 60000)
-          });
         } else {
           // If no exit time, use the last candle (current)
           exitCandle = candles[candles.length - 1];
@@ -303,20 +288,6 @@ export default function CandlestickChart({ symbol, onClose, priceLines, tradeMar
 
         createSeriesMarkers(candleSeries, markers);
 
-        // Calculate P&L for display
-        const pnlPercent = type === 'long'
-          ? ((actualExitPrice - entryPrice) / entryPrice) * 100
-          : ((entryPrice - actualExitPrice) / entryPrice) * 100;
-        
-        // Store for legend
-        (window as unknown as Record<string, unknown>).__tradeInfo = {
-          entryPrice,
-          exitPrice: actualExitPrice,
-          pnlPercent,
-          isProfitable,
-          isOpen,
-          type
-        };
       }
 
       // Set last price info

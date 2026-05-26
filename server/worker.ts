@@ -201,7 +201,9 @@ async function readDB(pool: Pool): Promise<(DBState & { updatedAt: Date }) | nul
     const row = result.rows[0];
     if (!row) return null;
 
-    const pairs: TradingPair[]  = Array.isArray(row.pairs) ? row.pairs : [];
+    const pairs: TradingPair[] = Array.isArray(row.pairs) && row.pairs.length > 0
+      ? row.pairs
+      : DEFAULT_PAIRS;
     const settings: Settings = row.settings?.initialBalance
       ? { ...DEFAULT_SETTINGS, ...row.settings }
       : DEFAULT_SETTINGS;

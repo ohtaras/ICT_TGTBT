@@ -9,7 +9,7 @@ import SettingsPage from './pages/Settings';
 import {
   getSignals, saveSignals,
   getTrades, saveTrades,
-  getPairs, savePairs,
+  getPairs,
   addPair as storeAddPair,
   removePair as storeRemovePair,
   togglePair as storeTogglePair,
@@ -139,7 +139,6 @@ export default function App() {
             pairs={pairs}
             autoTrading={settings.autoTrading}
             onToggleAutoTrading={handleToggleAutoTrading}
-            cloudEnabled={settings.cloudSyncEnabled}
           />
         );
       case 'signals':
@@ -169,7 +168,6 @@ export default function App() {
           <SettingsPage
             settings={settings}
             onSave={handleSaveSettings}
-            onCloudRestore={syncFromServer}
           />
         );
       default:
