@@ -4,6 +4,7 @@ import { Pool } from 'pg';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { startWorker } from './worker.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -175,8 +176,9 @@ app.get('*', (_req: Request, res: Response) => {
 async function start() {
   if (process.env.DATABASE_URL) {
     await initDb();
+    startWorker(pool);
   } else {
-    console.warn('[db] DATABASE_URL not set — persistence disabled');
+    console.warn('[db] DATABASE_URL not set — worker disabled, data lives in browser only');
   }
   const port = parseInt(process.env.PORT || '3000', 10);
   app.listen(port, () => {

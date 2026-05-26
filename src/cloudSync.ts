@@ -108,8 +108,6 @@ export async function deleteServerData(): Promise<boolean> {
 // ============ DEBOUNCED SYNC ============
 // Signature kept compatible with store.ts call sites
 export function schedulCloudSync(_apiKey?: string, _binId?: string) {
-  const settings = JSON.parse(localStorage.getItem('ict_settings') || '{}');
-  if (!settings.cloudSyncEnabled) return;
   if (_isSyncing) return;
   if (_syncTimeout) clearTimeout(_syncTimeout);
 
