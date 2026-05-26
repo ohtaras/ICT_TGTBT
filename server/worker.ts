@@ -440,16 +440,16 @@ async function runICTScan(pool: Pool): Promise<void> {
     if (enabledPairs.length === 0) return;
 
     let signals = [...db.signals];
-    let changed = false;
+    const newSignals: Signal[] = []; // only genuinely new ones to prepend
 
     for (const pair of enabledPairs) {
       try {
         const candles = await fetchCandles(pair.symbol, '1h', 200);
         if (candles.length < 30) continue;
 
-        const newSignals = ictCoreEngine(candles, pair.symbol);
+        const pairSignals = ictCoreEngine(candles, pair.symbol);
         const recentTime = candles.length > 2 ? candles[candles.length - 3].time : 0;
-        const recentSignals = newSignals.filter(s => s.timestamp >= recentTime);
+        const recentSignals = pairSignals.filter(s => s.timestamp >= recentTime);
 
         const openTrade = db.trades.find(t => t.pair === pair.symbol && t.status === 'open');
 
@@ -461,32 +461,29 @@ async function runICTScan(pool: Pool): Promise<void> {
           );
           if (isDuplicate) continue;
 
-          changed = true;
-          if (openTrade) {
-            signals.unshift({
-              ...sig, status: 'rejected', rejectedAt: Date.now(),
-              rejectionReason: `Ανοιχτή θέση (${openTrade.type} @ ${openTrade.entryPrice.toFixed(4)})`,
-            });
-          } else {
-            signals.unshift(sig);
-            console.log(`[worker] NEW SIGNAL: ${sig.pair} ${sig.type} entry=${sig.entry}`);
-          }
-        }
+          const entry = openTrade
+            ? { ...sig, status: 'rejected' as const, rejectedAt: Date.now(),
+                rejectionReason: `Ανοιχτή θέση (${openTrade.type} @ ${openTrade.entryPrice.toFixed(4)})` }
+            : sig;
 
-        if (signals.length > 200) signals = signals.slice(0, 200);
+          newSignals.unshift(entry);
+          signals.unshift(entry); // keep local list updated for duplicate check
+          if (!openTrade) console.log(`[worker] NEW SIGNAL: ${sig.pair} ${sig.type} entry=${sig.entry}`);
+        }
       } catch (err) {
         console.error(`[worker] scan error ${pair.symbol}:`, err);
       }
     }
 
-    if (changed) {
-      const result = await pool.query(
-        `UPDATE trading_data SET signals=$1, updated_at=NOW() WHERE id=1 AND updated_at=$2`,
-        [JSON.stringify(signals), db.updatedAt],
-      );
-      if ((result.rowCount ?? 0) === 0) {
-        console.log('[worker] ICT scan write skipped — DB was modified externally (reset?)');
-      }
+    if (newSignals.length > 0) {
+      // Atomic JSONB prepend — no optimistic lock needed, no race with price check
+      await pool.query(`
+        UPDATE trading_data
+        SET signals = ($1::jsonb || signals),
+            updated_at = NOW()
+        WHERE id = 1
+      `, [JSON.stringify(newSignals)]);
+      console.log(`[worker] ICT scan wrote ${newSignals.length} new signal(s)`);
     }
   } catch (err) {
     console.error('[worker] ICT scan error:', err);
