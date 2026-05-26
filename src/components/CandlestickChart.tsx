@@ -68,6 +68,7 @@ export default function CandlestickChart({ symbol, onClose, priceLines, tradeMar
   const [lastPrice, setLastPrice] = useState<{ open: number; high: number; low: number; close: number } | null>(null);
   const [priceChange, setPriceChange] = useState(0);
   const [tradeOutOfRange, setTradeOutOfRange] = useState(false);
+  const [liveExitPrice, setLiveExitPrice] = useState<number | null>(null);
 
   useEffect(() => {
     if (!chartContainerRef.current) return;
@@ -244,7 +245,10 @@ export default function CandlestickChart({ symbol, onClose, priceLines, tradeMar
           exitCandle = candles[candles.length - 1];
         }
 
-        const actualExitPrice = exitPrice ?? exitCandle.close;
+        // For open trades always use the last candle close (live Binance price),
+        // not trade.currentPrice which can be stale if the server is behind.
+        const actualExitPrice = isOpen ? exitCandle.close : (exitPrice ?? exitCandle.close);
+        setLiveExitPrice(actualExitPrice);
         const isProfitable = type === 'long' 
           ? actualExitPrice > entryPrice 
           : actualExitPrice < entryPrice;
@@ -408,59 +412,61 @@ export default function CandlestickChart({ symbol, onClose, priceLines, tradeMar
         )}
 
         {/* Trade info banner (if trade marker exists) */}
-        {hasTrade && tradeMarker && (
-          <div className={`px-3 sm:px-4 py-2 border-b flex items-center justify-between text-xs sm:text-sm ${
-            tradeMarker.isOpen 
-              ? 'bg-blue-500/10 border-blue-500/30' 
-              : (tradeMarker.exitPrice && (
-                  tradeMarker.type === 'long' 
-                    ? tradeMarker.exitPrice > tradeMarker.entryPrice 
-                    : tradeMarker.exitPrice < tradeMarker.entryPrice
-                ))
-                ? 'bg-emerald-500/10 border-emerald-500/30'
-                : 'bg-red-500/10 border-red-500/30'
-          }`}>
-            <div className="flex items-center gap-4 flex-wrap">
-              <span className={`font-semibold ${tradeMarker.type === 'long' ? 'text-emerald-400' : 'text-red-400'}`}>
-                {tradeMarker.type === 'long' ? '📈 LONG' : '📉 SHORT'}
-              </span>
-              <span className="text-gray-300">
-                Entry: <span className="text-amber-400 font-mono">${tradeMarker.entryPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}</span>
-              </span>
-              {tradeMarker.exitPrice && (
+        {hasTrade && tradeMarker && (() => {
+          // For open trades use the live price from the chart candles; fall back to prop while loading
+          const displayPrice = tradeMarker.isOpen
+            ? (liveExitPrice ?? tradeMarker.exitPrice)
+            : tradeMarker.exitPrice;
+          const isProfitBanner = displayPrice != null && (
+            tradeMarker.type === 'long'
+              ? displayPrice > tradeMarker.entryPrice
+              : displayPrice < tradeMarker.entryPrice
+          );
+          return (
+            <div className={`px-3 sm:px-4 py-2 border-b flex items-center justify-between text-xs sm:text-sm ${
+              tradeMarker.isOpen
+                ? 'bg-blue-500/10 border-blue-500/30'
+                : isProfitBanner
+                  ? 'bg-emerald-500/10 border-emerald-500/30'
+                  : 'bg-red-500/10 border-red-500/30'
+            }`}>
+              <div className="flex items-center gap-4 flex-wrap">
+                <span className={`font-semibold ${tradeMarker.type === 'long' ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {tradeMarker.type === 'long' ? '📈 LONG' : '📉 SHORT'}
+                </span>
                 <span className="text-gray-300">
-                  {tradeMarker.isOpen ? 'Current' : 'Exit'}: <span className={`font-mono ${
-                    (tradeMarker.type === 'long' ? tradeMarker.exitPrice > tradeMarker.entryPrice : tradeMarker.exitPrice < tradeMarker.entryPrice)
-                      ? 'text-emerald-400' : 'text-red-400'
-                  }`}>${tradeMarker.exitPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}</span>
+                  Entry: <span className="text-amber-400 font-mono">${tradeMarker.entryPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}</span>
                 </span>
-              )}
+                {displayPrice != null && (
+                  <span className="text-gray-300">
+                    {tradeMarker.isOpen ? 'Current' : 'Exit'}: <span className={`font-mono ${isProfitBanner ? 'text-emerald-400' : 'text-red-400'}`}>
+                      ${displayPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}
+                    </span>
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {tradeMarker.isOpen ? (
+                  <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 text-xs font-medium flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse inline-block" />
+                    LIVE
+                  </span>
+                ) : displayPrice != null && (
+                  <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                    isProfitBanner ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
+                  }`}>
+                    {(() => {
+                      const pnl = tradeMarker.type === 'long'
+                        ? ((displayPrice - tradeMarker.entryPrice) / tradeMarker.entryPrice) * 100
+                        : ((tradeMarker.entryPrice - displayPrice) / tradeMarker.entryPrice) * 100;
+                      return `${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}%`;
+                    })()}
+                  </span>
+                )}
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              {tradeMarker.isOpen ? (
-                <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 text-xs font-medium flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse inline-block" />
-                  LIVE
-                </span>
-              ) : (
-                <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                  (tradeMarker.type === 'long' 
-                    ? (tradeMarker.exitPrice ?? 0) > tradeMarker.entryPrice 
-                    : (tradeMarker.exitPrice ?? 0) < tradeMarker.entryPrice)
-                    ? 'bg-emerald-500/20 text-emerald-400' 
-                    : 'bg-red-500/20 text-red-400'
-                }`}>
-                  {(() => {
-                    const pnl = tradeMarker.type === 'long'
-                      ? (((tradeMarker.exitPrice ?? 0) - tradeMarker.entryPrice) / tradeMarker.entryPrice) * 100
-                      : ((tradeMarker.entryPrice - (tradeMarker.exitPrice ?? 0)) / tradeMarker.entryPrice) * 100;
-                    return `${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}%`;
-                  })()}
-                </span>
-              )}
-            </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Price lines legend + Interval selector */}
         <div className="flex items-center gap-1 px-3 sm:px-4 py-2 border-b border-gray-800 bg-gray-900/50 overflow-x-auto">
