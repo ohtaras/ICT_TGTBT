@@ -70,7 +70,7 @@ export function getPairs(): TradingPair[] {
     { symbol: 'AVAXUSDT', enabled: true, currentPrice: 0, change24h: 0, lastUpdate: 0 },
     { symbol: 'DOTUSDT', enabled: true, currentPrice: 0, change24h: 0, lastUpdate: 0 },
     { symbol: 'LINKUSDT', enabled: true, currentPrice: 0, change24h: 0, lastUpdate: 0 },
-    { symbol: 'MATICUSDT', enabled: true, currentPrice: 0, change24h: 0, lastUpdate: 0 },
+    { symbol: 'POLUSDT', enabled: true, currentPrice: 0, change24h: 0, lastUpdate: 0 },
     { symbol: 'UNIUSDT', enabled: true, currentPrice: 0, change24h: 0, lastUpdate: 0 },
     { symbol: 'ATOMUSDT', enabled: true, currentPrice: 0, change24h: 0, lastUpdate: 0 },
     { symbol: 'LTCUSDT', enabled: true, currentPrice: 0, change24h: 0, lastUpdate: 0 },

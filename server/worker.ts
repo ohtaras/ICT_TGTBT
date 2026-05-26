@@ -35,7 +35,7 @@ interface DBState {
 const DEFAULT_PAIRS: TradingPair[] = [
   'BTCUSDT','ETHUSDT','BNBUSDT','SOLUSDT','XRPUSDT',
   'ADAUSDT','DOGEUSDT','AVAXUSDT','DOTUSDT','LINKUSDT',
-  'MATICUSDT','UNIUSDT','ATOMUSDT','LTCUSDT','NEARUSDT',
+  'POLUSDT','UNIUSDT','ATOMUSDT','LTCUSDT','NEARUSDT',
   'APTUSDT','ARBUSDT','OPUSDT','SUIUSDT','INJUSDT',
   'PEPEUSDT','SHIBUSDT','RENDERUSDT','FETUSDT','FILUSDT',
 ].map(symbol => ({ symbol, enabled: true, currentPrice: 0, change24h: 0, lastUpdate: 0 }));
@@ -89,7 +89,16 @@ async function fetchPrices(pairs: TradingPair[]): Promise<Map<string, { price: n
       });
     }
   } catch (err) {
-    console.error('[worker] prices error:', err);
+    console.error('[worker] batch prices failed, trying individually:', err);
+    for (const pair of pairs) {
+      try {
+        const url = `${BINANCE_BASE}/api/v3/ticker/24hr?symbol=${pair.symbol}`;
+        const res = await fetch(url);
+        if (!res.ok) { console.warn(`[worker] skip ${pair.symbol}`); continue; }
+        const item = await res.json() as { symbol: string; lastPrice: string; priceChangePercent: string };
+        results.set(item.symbol, { price: parseFloat(item.lastPrice), change24h: parseFloat(item.priceChangePercent) });
+      } catch { /* skip bad symbol */ }
+    }
   }
   return results;
 }
