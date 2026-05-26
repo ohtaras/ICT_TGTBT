@@ -315,6 +315,13 @@ async function prependTrades(pool: Pool, newTrades: Trade[]): Promise<void> {
   `, [JSON.stringify(newTrades)]);
 }
 
+// ============ WORKER STATUS (exported for /api/worker-status) ============
+let lastPriceCheckAt = 0;
+let lastICTScanAt = 0;
+export function getWorkerStatus() {
+  return { lastPriceCheckAt, lastICTScanAt };
+}
+
 // ============ PRICE CHECK (every 5s) ============
 let priceCheckRunning = false;
 
@@ -508,6 +515,7 @@ async function runPriceCheck(pool: Pool): Promise<void> {
     // ATOMIC: update signal statuses (CASE-based — never overwrites ICT scan's new signals)
     await patchSignalsBatch(pool, signalPatchMap);
 
+    lastPriceCheckAt = Date.now();
   } catch (err) {
     console.error('[worker] price check error:', err);
   } finally {
@@ -574,6 +582,7 @@ async function runICTScan(pool: Pool): Promise<void> {
       `, [JSON.stringify(newSignals)]);
       console.log(`[worker] ICT scan wrote ${newSignals.length} new signal(s)`);
     }
+    lastICTScanAt = Date.now();
   } catch (err) {
     console.error('[worker] ICT scan error:', err);
   } finally {

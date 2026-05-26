@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { TradingPair } from '../types';
-import { fetchAllUsdtPairs } from '../api/binance';
+import { fetchAllUsdtPairs, fetchAllPrices } from '../api/binance';
 import CandlestickChart from '../components/CandlestickChart';
 import {
   Coins,
@@ -40,6 +40,8 @@ const POPULAR_COINS = [
 export default function Pairs({ pairs, onAdd, onRemove, onToggle }: PairsProps) {
   const [showConfirm, setShowConfirm] = useState<string | null>(null);
   const [chartSymbol, setChartSymbol] = useState<string | null>(null);
+  const [livePrices, setLivePrices] = useState<Map<string, { price: number; change24h: number }>>(new Map());
+  const [workerStatus, setWorkerStatus] = useState<{ lastPriceCheckAt: number; lastICTScanAt: number } | null>(null);
 
   // Dropdown state
   const [isOpen, setIsOpen] = useState(false);
@@ -75,6 +77,31 @@ export default function Pairs({ pairs, onAdd, onRemove, onToggle }: PairsProps) 
     loadPairs();
     setTimeout(() => searchInputRef.current?.focus(), 100);
   };
+
+  // Live price fetching directly from Binance (browser-side, bypasses server)
+  useEffect(() => {
+    const fetchLive = async () => {
+      if (pairs.length === 0) return;
+      const map = await fetchAllPrices(pairs);
+      if (map.size > 0) setLivePrices(map);
+    };
+    fetchLive();
+    const t = setInterval(fetchLive, 5_000);
+    return () => clearInterval(t);
+  }, [pairs]);
+
+  // Worker status polling
+  useEffect(() => {
+    const fetchStatus = async () => {
+      try {
+        const res = await fetch('/api/worker-status');
+        if (res.ok) setWorkerStatus(await res.json());
+      } catch { /* ignore */ }
+    };
+    fetchStatus();
+    const t = setInterval(fetchStatus, 10_000);
+    return () => clearInterval(t);
+  }, []);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -133,6 +160,28 @@ export default function Pairs({ pairs, onAdd, onRemove, onToggle }: PairsProps) 
         <h2 className="text-xl font-bold">Trading Pairs</h2>
         <span className="text-sm text-gray-500">({pairs.length} pairs)</span>
       </div>
+
+      {/* Worker Status Bar */}
+      {workerStatus && (
+        <div className="bg-gray-900 border border-gray-800 rounded-lg px-4 py-2.5 flex flex-wrap gap-x-6 gap-y-1 text-xs text-gray-400">
+          <span>
+            <span className="text-gray-600">Τελευταία τιμές:</span>{' '}
+            {workerStatus.lastPriceCheckAt > 0
+              ? <span className={Date.now() - workerStatus.lastPriceCheckAt < 15_000 ? 'text-emerald-400' : 'text-red-400'}>
+                  {Math.round((Date.now() - workerStatus.lastPriceCheckAt) / 1000)}s πριν
+                </span>
+              : <span className="text-red-400">Ποτέ — worker δεν τρέχει!</span>}
+          </span>
+          <span>
+            <span className="text-gray-600">Τελευταίο scan:</span>{' '}
+            {workerStatus.lastICTScanAt > 0
+              ? <span className="text-gray-300">
+                  {Math.round((Date.now() - workerStatus.lastICTScanAt) / 1000)}s πριν
+                </span>
+              : <span className="text-amber-400">Εκκρεμεί…</span>}
+          </span>
+        </div>
+      )}
 
       {/* Add New Pair — Dropdown */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
@@ -327,27 +376,24 @@ export default function Pairs({ pairs, onAdd, onRemove, onToggle }: PairsProps) 
                       <BarChart3 className="w-3.5 h-3.5 text-gray-600 group-hover:text-amber-400 transition-colors" />
                     </div>
                     <div className="flex items-center gap-2 text-xs text-gray-500">
-                      {pair.currentPrice > 0 ? (
-                        <>
-                          <span className="font-mono text-white">
-                            ${pair.currentPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}
-                          </span>
-                          <span
-                            className={`flex items-center gap-0.5 ${
-                              pair.change24h >= 0 ? 'text-emerald-400' : 'text-red-400'
-                            }`}
-                          >
-                            {pair.change24h >= 0 ? (
-                              <ArrowUpRight className="w-3 h-3" />
-                            ) : (
-                              <ArrowDownRight className="w-3 h-3" />
-                            )}
-                            {Math.abs(pair.change24h).toFixed(2)}%
-                          </span>
-                        </>
-                      ) : (
-                        <span>Loading price...</span>
-                      )}
+                      {(() => {
+                        const live = livePrices.get(pair.symbol);
+                        const price = live?.price ?? (pair.currentPrice > 0 ? pair.currentPrice : 0);
+                        const change = live?.change24h ?? pair.change24h;
+                        return price > 0 ? (
+                          <>
+                            <span className="font-mono text-white">
+                              ${price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}
+                            </span>
+                            <span className={`flex items-center gap-0.5 ${change >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                              {change >= 0 ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
+                              {Math.abs(change).toFixed(2)}%
+                            </span>
+                          </>
+                        ) : (
+                          <span className="text-gray-600 animate-pulse">Loading…</span>
+                        );
+                      })()}
                     </div>
                   </div>
                 </button>
