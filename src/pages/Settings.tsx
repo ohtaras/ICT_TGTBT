@@ -25,8 +25,8 @@ interface SettingsProps {
 }
 
 export default function SettingsPage({ settings, onSave }: SettingsProps) {
-  const [riskPerTrade, setRiskPerTrade]     = useState(settings.riskPerTrade);
-  const [initialBalance, setInitialBalance] = useState(settings.initialBalance);
+  const [riskPerTrade, setRiskPerTrade]     = useState(settings.riskPerTrade ?? 2);
+  const [initialBalance, setInitialBalance] = useState(settings.initialBalance ?? 10000);
   const [leverage, setLeverage]             = useState(settings.leverage ?? 10);
   const [feeRate, setFeeRate]               = useState(settings.feeRate ?? 0.04);
   const [fundingRate, setFundingRate]       = useState(settings.fundingRate ?? 0.01);
