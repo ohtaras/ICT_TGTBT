@@ -156,7 +156,7 @@ app.delete('/api/data', async (_req: Request, res: Response) => {
   try {
     await pool.query(
       `UPDATE trading_data
-       SET signals='[]', trades='[]', pairs='[]', settings='{"autoTrading":false,"riskPerTrade":2,"initialBalance":10000,"leverage":10,"feeRate":0.04,"fundingRate":0.01}', equity_history='[]', updated_at=NOW()
+       SET signals='[]', trades='[]', settings='{"autoTrading":false,"riskPerTrade":2,"initialBalance":10000,"leverage":10,"feeRate":0.04,"fundingRate":0.01}', equity_history='[]', updated_at=NOW()
        WHERE id=1`
     );
     res.json({ ok: true });
