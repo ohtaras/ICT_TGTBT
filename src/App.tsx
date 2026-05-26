@@ -122,14 +122,20 @@ export default function App() {
             ? ((currentPrice - trade.entryPrice) / trade.entryPrice) * 100
             : ((trade.entryPrice - currentPrice) / trade.entryPrice) * 100;
 
-        const exitResult = checkTradeExit(trade.type, currentPrice, trade.sl, trade.tp);
+        const exitResult = checkTradeExit(trade.type, currentPrice, trade.sl, trade.tp, trade.liquidationPrice ?? 0);
 
         if (exitResult) {
           tradesChanged = true;
-          const closePnl =
-            trade.type === 'LONG'
-              ? ((exitResult === 'won' ? trade.tp : trade.sl) - trade.entryPrice) * trade.size
-              : (trade.entryPrice - (exitResult === 'won' ? trade.tp : trade.sl)) * trade.size;
+          const closePrice = exitResult === 'won'
+            ? trade.tp
+            : exitResult === 'liquidated'
+            ? trade.liquidationPrice ?? trade.sl
+            : trade.sl;
+          const closePnl = exitResult === 'liquidated'
+            ? -(trade.entryPrice * trade.size) / (trade.leverage ?? 1)
+            : trade.type === 'LONG'
+            ? (closePrice - trade.entryPrice) * trade.size
+            : (trade.entryPrice - closePrice) * trade.size;
 
           // Add equity point
           const currentStats = getPortfolioStats();
@@ -147,7 +153,7 @@ export default function App() {
             ),
             status: exitResult as Trade['status'],
             closeTime: Date.now(),
-            closePrice: exitResult === 'won' ? trade.tp : trade.sl,
+            closePrice,
           };
         }
 
@@ -199,11 +205,19 @@ export default function App() {
               };
             }
 
-            // Create trade entry in database
-            const balance = getPortfolioStats().balance;
-            const riskAmount = balance * (settingsRef.current.riskPerTrade / 100);
-            const riskPerUnit = Math.abs(sig.entry - sig.sl);
-            const size = riskPerUnit > 0 ? riskAmount / riskPerUnit : 0;
+            // Futures position sizing
+            const leverage        = settingsRef.current.leverage ?? 10;
+            const balance         = getPortfolioStats().balance;
+            const riskAmount      = balance * (settingsRef.current.riskPerTrade / 100);
+            const riskPerUnit     = Math.abs(sig.entry - sig.sl);
+            const sizeByRisk      = riskPerUnit > 0 ? riskAmount / riskPerUnit : 0;
+            const maxSizeByMargin = (balance * leverage) / sig.entry;
+            const size            = Math.min(sizeByRisk, maxSizeByMargin);
+            const liquidationPrice = parseFloat((
+              sig.type === 'BULLISH'
+                ? sig.entry * (1 - 1 / leverage)
+                : sig.entry * (1 + 1 / leverage)
+            ).toPrecision(8));
 
             if (size > 0) {
               const newTrade: Trade = {
@@ -215,6 +229,8 @@ export default function App() {
                 currentPrice: pairData.price,
                 sl: sig.sl,
                 tp: sig.tp,
+                liquidationPrice,
+                leverage,
                 size: parseFloat(size.toFixed(6)),
                 pnl: 0,
                 pnlPercent: 0,

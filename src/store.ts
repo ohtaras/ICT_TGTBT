@@ -136,6 +136,7 @@ export function getSettings(): Settings {
     autoTrading: false,
     riskPerTrade: 2,
     initialBalance: 10000,
+    leverage: 10,
     dataSource: 'binance' as const,
   };
 }
@@ -164,7 +165,7 @@ export function getPortfolioStats(): PortfolioStats {
   const trades = getTrades();
   const settings = getSettings();
 
-  const closedTrades = trades.filter(t => t.status === 'won' || t.status === 'lost' || t.status === 'manual_close');
+  const closedTrades = trades.filter(t => t.status === 'won' || t.status === 'lost' || t.status === 'liquidated' || t.status === 'manual_close');
   const openTrades = trades.filter(t => t.status === 'open');
   const wonTrades = closedTrades.filter(t => t.pnl > 0);
   const lostTrades = closedTrades.filter(t => t.pnl <= 0);

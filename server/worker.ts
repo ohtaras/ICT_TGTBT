@@ -13,15 +13,16 @@ interface Signal {
 interface Trade {
   id: string; signalId: string; pair: string; type: 'LONG' | 'SHORT';
   entryPrice: number; currentPrice: number; sl: number; tp: number;
+  liquidationPrice: number; leverage: number;
   size: number; pnl: number; pnlPercent: number;
-  status: 'open' | 'won' | 'lost' | 'manual_close';
+  status: 'open' | 'won' | 'lost' | 'liquidated' | 'manual_close';
   openTime: number; closeTime?: number; closePrice?: number;
 }
 interface TradingPair {
   symbol: string; enabled: boolean; currentPrice: number; change24h: number; lastUpdate: number;
 }
 interface Settings {
-  autoTrading: boolean; riskPerTrade: number; initialBalance: number;
+  autoTrading: boolean; riskPerTrade: number; initialBalance: number; leverage: number;
 }
 interface DBState {
   signals: Signal[]; trades: Trade[]; pairs: TradingPair[];
@@ -37,7 +38,7 @@ const DEFAULT_PAIRS: TradingPair[] = [
   'PEPEUSDT','SHIBUSDT','RENDERUSDT','FETUSDT','FILUSDT',
 ].map(symbol => ({ symbol, enabled: true, currentPrice: 0, change24h: 0, lastUpdate: 0 }));
 
-const DEFAULT_SETTINGS: Settings = { autoTrading: false, riskPerTrade: 2, initialBalance: 10000 };
+const DEFAULT_SETTINGS: Settings = { autoTrading: false, riskPerTrade: 2, initialBalance: 10000, leverage: 10 };
 
 // ============ UTILS ============
 function generateId(): string {
@@ -172,12 +173,20 @@ function checkSignalTrigger(signal: Signal, price: number): boolean {
   return price >= signal.entry * 0.998 && price <= signal.sl;
 }
 
-function checkTradeExit(type: 'LONG' | 'SHORT', price: number, sl: number, tp: number): 'won' | 'lost' | null {
+function checkTradeExit(
+  type: 'LONG' | 'SHORT',
+  price: number,
+  sl: number,
+  tp: number,
+  liquidationPrice: number,
+): 'won' | 'lost' | 'liquidated' | null {
   if (type === 'LONG') {
     if (price >= tp) return 'won';
+    if (price <= liquidationPrice) return 'liquidated';
     if (price <= sl) return 'lost';
   } else {
     if (price <= tp) return 'won';
+    if (price >= liquidationPrice) return 'liquidated';
     if (price >= sl) return 'lost';
   }
   return null;
@@ -257,17 +266,24 @@ async function runPriceCheck(pool: Pool): Promise<void> {
       if (!d || d.price <= 0) return trade;
 
       const price = d.price;
-      const exitResult = checkTradeExit(trade.type, price, trade.sl, trade.tp);
+      const exitResult = checkTradeExit(trade.type, price, trade.sl, trade.tp, trade.liquidationPrice);
 
       if (exitResult) {
         tradesChanged = true;
-        const closePrice = exitResult === 'won' ? trade.tp : trade.sl;
-        const closePnl = trade.type === 'LONG'
+        const closePrice = exitResult === 'won'
+          ? trade.tp
+          : exitResult === 'liquidated'
+          ? trade.liquidationPrice
+          : trade.sl;
+        const closePnl = exitResult === 'liquidated'
+          ? -(trade.entryPrice * trade.size) / trade.leverage  // full margin loss
+          : trade.type === 'LONG'
           ? (closePrice - trade.entryPrice) * trade.size
           : (trade.entryPrice - closePrice) * trade.size;
         console.log(`[worker] ${exitResult.toUpperCase()}: ${trade.pair} ${trade.type} PnL $${closePnl.toFixed(2)}`);
         return {
-          ...trade, currentPrice: price, status: exitResult as Trade['status'],
+          ...trade, currentPrice: price,
+          status: exitResult as Trade['status'],
           closeTime: Date.now(), closePrice,
           pnl: parseFloat(closePnl.toFixed(4)),
           pnlPercent: parseFloat(((closePnl / (trade.entryPrice * trade.size)) * 100).toFixed(2)),
@@ -324,13 +340,19 @@ async function runPriceCheck(pool: Pool): Promise<void> {
         };
       }
 
-      // Calculate position size with cap (max 10% notional of balance)
-      const balance     = getBalance(updatedTrades, db.settings.initialBalance);
-      const riskAmount  = balance * (db.settings.riskPerTrade / 100);
-      const riskPerUnit = Math.abs(sig.entry - sig.sl);
-      const rawSize     = riskPerUnit > 0 ? riskAmount / riskPerUnit : 0;
-      const maxSize     = (balance * 0.1) / sig.entry;
-      const size        = parseFloat(Math.min(rawSize, maxSize).toFixed(6));
+      // Futures position sizing
+      const leverage        = db.settings.leverage ?? 10;
+      const balance         = getBalance(updatedTrades, db.settings.initialBalance);
+      const riskAmount      = balance * (db.settings.riskPerTrade / 100);
+      const riskPerUnit     = Math.abs(sig.entry - sig.sl);
+      const sizeByRisk      = riskPerUnit > 0 ? riskAmount / riskPerUnit : 0;
+      const maxSizeByMargin = (balance * leverage) / sig.entry;
+      const size            = parseFloat(Math.min(sizeByRisk, maxSizeByMargin).toFixed(6));
+      const liquidationPrice = parseFloat((
+        sig.type === 'BULLISH'
+          ? sig.entry * (1 - 1 / leverage)
+          : sig.entry * (1 + 1 / leverage)
+      ).toPrecision(8));
 
       if (size <= 0) return sig;
 
@@ -338,7 +360,7 @@ async function runPriceCheck(pool: Pool): Promise<void> {
         id: generateId(), signalId: sig.id, pair: sig.pair,
         type: sig.type === 'BULLISH' ? 'LONG' : 'SHORT',
         entryPrice: sig.entry, currentPrice: d.price,
-        sl: sig.sl, tp: sig.tp, size,
+        sl: sig.sl, tp: sig.tp, liquidationPrice, leverage, size,
         pnl: 0, pnlPercent: 0, status: 'open', openTime: Date.now(),
       };
 

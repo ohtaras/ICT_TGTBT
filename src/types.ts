@@ -23,10 +23,12 @@ export interface Trade {
   currentPrice: number;
   sl: number;
   tp: number;
+  liquidationPrice: number;
+  leverage: number;
   size: number;
   pnl: number;
   pnlPercent: number;
-  status: 'open' | 'won' | 'lost' | 'manual_close';
+  status: 'open' | 'won' | 'lost' | 'liquidated' | 'manual_close';
   openTime: number;
   closeTime?: number;
   closePrice?: number;
@@ -44,6 +46,7 @@ export interface Settings {
   autoTrading: boolean;
   riskPerTrade: number;
   initialBalance: number;
+  leverage: number;
   dataSource: 'binance';
   cloudSyncEnabled?: boolean;
 }
