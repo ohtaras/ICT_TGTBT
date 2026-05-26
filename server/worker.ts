@@ -195,7 +195,7 @@ function checkTradeExit(
 }
 
 // ============ DB HELPERS ============
-async function readDB(pool: Pool): Promise<DBState | null> {
+async function readDB(pool: Pool): Promise<(DBState & { updatedAt: Date }) | null> {
   try {
     const result = await pool.query('SELECT * FROM trading_data WHERE id = 1');
     const row = result.rows[0];
@@ -212,6 +212,7 @@ async function readDB(pool: Pool): Promise<DBState | null> {
       pairs,
       settings,
       equityHistory: row.equity_history ?? [],
+      updatedAt:     row.updated_at as Date,
     };
   } catch (err) {
     console.error('[worker] readDB error:', err);
@@ -219,19 +220,23 @@ async function readDB(pool: Pool): Promise<DBState | null> {
   }
 }
 
-async function writeDB(pool: Pool, data: DBState): Promise<void> {
-  await pool.query(
+async function writeDB(pool: Pool, data: DBState, expectedUpdatedAt: Date): Promise<void> {
+  const result = await pool.query(
     `UPDATE trading_data
      SET signals=$1, trades=$2, pairs=$3, settings=$4, equity_history=$5, updated_at=NOW()
-     WHERE id=1`,
+     WHERE id=1 AND updated_at=$6`,
     [
       JSON.stringify(data.signals),
       JSON.stringify(data.trades),
       JSON.stringify(data.pairs),
       JSON.stringify(data.settings),
       JSON.stringify(data.equityHistory),
+      expectedUpdatedAt,
     ],
   );
+  if ((result.rowCount ?? 0) === 0) {
+    console.log('[worker] writeDB skipped — DB was modified externally (reset?)');
+  }
 }
 
 // ============ PRICE CHECK (every 15s) ============
@@ -412,7 +417,7 @@ async function runPriceCheck(pool: Pool): Promise<void> {
       pairs:         updatedPairs,
       settings:      db.settings,
       equityHistory: updatedEquity,
-    });
+    }, db.updatedAt);
 
   } catch (err) {
     console.error('[worker] price check error:', err);
@@ -475,10 +480,13 @@ async function runICTScan(pool: Pool): Promise<void> {
     }
 
     if (changed) {
-      await pool.query(
-        `UPDATE trading_data SET signals=$1, updated_at=NOW() WHERE id=1`,
-        [JSON.stringify(signals)],
+      const result = await pool.query(
+        `UPDATE trading_data SET signals=$1, updated_at=NOW() WHERE id=1 AND updated_at=$2`,
+        [JSON.stringify(signals), db.updatedAt],
       );
+      if ((result.rowCount ?? 0) === 0) {
+        console.log('[worker] ICT scan write skipped — DB was modified externally (reset?)');
+      }
     }
   } catch (err) {
     console.error('[worker] ICT scan error:', err);
