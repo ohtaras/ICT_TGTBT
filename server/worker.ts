@@ -15,6 +15,7 @@ interface Trade {
   entryPrice: number; currentPrice: number; sl: number; tp: number;
   liquidationPrice: number; leverage: number;
   size: number; pnl: number; pnlPercent: number;
+  feePaid: number; fundingPaid: number; lastFundingTime: number;
   status: 'open' | 'won' | 'lost' | 'liquidated' | 'manual_close';
   openTime: number; closeTime?: number; closePrice?: number;
 }
@@ -22,7 +23,8 @@ interface TradingPair {
   symbol: string; enabled: boolean; currentPrice: number; change24h: number; lastUpdate: number;
 }
 interface Settings {
-  autoTrading: boolean; riskPerTrade: number; initialBalance: number; leverage: number;
+  autoTrading: boolean; riskPerTrade: number; initialBalance: number;
+  leverage: number; feeRate: number; fundingRate: number;
 }
 interface DBState {
   signals: Signal[]; trades: Trade[]; pairs: TradingPair[];
@@ -38,7 +40,7 @@ const DEFAULT_PAIRS: TradingPair[] = [
   'PEPEUSDT','SHIBUSDT','RENDERUSDT','FETUSDT','FILUSDT',
 ].map(symbol => ({ symbol, enabled: true, currentPrice: 0, change24h: 0, lastUpdate: 0 }));
 
-const DEFAULT_SETTINGS: Settings = { autoTrading: false, riskPerTrade: 2, initialBalance: 10000, leverage: 10 };
+const DEFAULT_SETTINGS: Settings = { autoTrading: false, riskPerTrade: 2, initialBalance: 10000, leverage: 10, feeRate: 0.04, fundingRate: 0.01 };
 
 // ============ UTILS ============
 function generateId(): string {
@@ -258,7 +260,11 @@ async function runPriceCheck(pool: Pool): Promise<void> {
         : p;
     });
 
-    // Check SL/TP on open trades
+    const feeRate     = (db.settings.feeRate     ?? 0.04) / 100;
+    const fundingRate = (db.settings.fundingRate ?? 0.01) / 100;
+    const FUNDING_INTERVAL = 8 * 60 * 60 * 1000; // 8 hours in ms
+
+    // Check SL/TP on open trades + apply funding
     let tradesChanged = false;
     const updatedTrades = db.trades.map(trade => {
       if (trade.status !== 'open') return trade;
@@ -266,6 +272,19 @@ async function runPriceCheck(pool: Pool): Promise<void> {
       if (!d || d.price <= 0) return trade;
 
       const price = d.price;
+      let { feePaid, fundingPaid, lastFundingTime } = trade;
+
+      // Apply funding rate every 8 hours
+      const fundingPeriodsElapsed = Math.floor((Date.now() - lastFundingTime) / FUNDING_INTERVAL);
+      if (fundingRate > 0 && fundingPeriodsElapsed > 0) {
+        const periodFunding = trade.type === 'LONG'
+          ? price * trade.size * fundingRate * fundingPeriodsElapsed   // LONG pays
+          : -(price * trade.size * fundingRate * fundingPeriodsElapsed); // SHORT receives
+        fundingPaid = parseFloat((fundingPaid + periodFunding).toFixed(4));
+        lastFundingTime = lastFundingTime + fundingPeriodsElapsed * FUNDING_INTERVAL;
+        tradesChanged = true;
+      }
+
       const exitResult = checkTradeExit(trade.type, price, trade.sl, trade.tp, trade.liquidationPrice);
 
       if (exitResult) {
@@ -275,28 +294,42 @@ async function runPriceCheck(pool: Pool): Promise<void> {
           : exitResult === 'liquidated'
           ? trade.liquidationPrice
           : trade.sl;
-        const closePnl = exitResult === 'liquidated'
-          ? -(trade.entryPrice * trade.size) / trade.leverage  // full margin loss
+
+        // Closing fee
+        const closingFee = parseFloat((closePrice * trade.size * feeRate).toFixed(4));
+        const totalFeePaid = parseFloat((feePaid + closingFee).toFixed(4));
+
+        const pricePnl = exitResult === 'liquidated'
+          ? -(trade.entryPrice * trade.size) / trade.leverage
           : trade.type === 'LONG'
           ? (closePrice - trade.entryPrice) * trade.size
           : (trade.entryPrice - closePrice) * trade.size;
-        console.log(`[worker] ${exitResult.toUpperCase()}: ${trade.pair} ${trade.type} PnL $${closePnl.toFixed(2)}`);
+
+        const closePnl = parseFloat((pricePnl - totalFeePaid - fundingPaid).toFixed(4));
+        const notional  = trade.entryPrice * trade.size;
+
+        console.log(`[worker] ${exitResult.toUpperCase()}: ${trade.pair} ${trade.type} PnL $${closePnl.toFixed(2)} (fees $${totalFeePaid.toFixed(2)} funding $${fundingPaid.toFixed(2)})`);
         return {
           ...trade, currentPrice: price,
           status: exitResult as Trade['status'],
           closeTime: Date.now(), closePrice,
-          pnl: parseFloat(closePnl.toFixed(4)),
-          pnlPercent: parseFloat(((closePnl / (trade.entryPrice * trade.size)) * 100).toFixed(2)),
+          feePaid: totalFeePaid, fundingPaid, lastFundingTime,
+          pnl: closePnl,
+          pnlPercent: parseFloat(((closePnl / notional) * 100).toFixed(2)),
         };
       }
 
-      const pnl = trade.type === 'LONG'
+      // Running P&L (net of fees + funding already paid)
+      const pricePnl = trade.type === 'LONG'
         ? (price - trade.entryPrice) * trade.size
         : (trade.entryPrice - price) * trade.size;
+      const netPnl = parseFloat((pricePnl - feePaid - fundingPaid).toFixed(4));
+      const notional = trade.entryPrice * trade.size;
+
       return {
-        ...trade, currentPrice: price,
-        pnl: parseFloat(pnl.toFixed(4)),
-        pnlPercent: parseFloat(((pnl / (trade.entryPrice * trade.size)) * 100).toFixed(2)),
+        ...trade, currentPrice: price, feePaid, fundingPaid, lastFundingTime,
+        pnl: netPnl,
+        pnlPercent: parseFloat(((netPnl / notional) * 100).toFixed(2)),
       };
     });
 
@@ -356,12 +389,16 @@ async function runPriceCheck(pool: Pool): Promise<void> {
 
       if (size <= 0) return sig;
 
+      const openingFee  = parseFloat((sig.entry * size * feeRate).toFixed(4));
+
       const newTrade: Trade = {
         id: generateId(), signalId: sig.id, pair: sig.pair,
         type: sig.type === 'BULLISH' ? 'LONG' : 'SHORT',
         entryPrice: sig.entry, currentPrice: d.price,
         sl: sig.sl, tp: sig.tp, liquidationPrice, leverage, size,
-        pnl: 0, pnlPercent: 0, status: 'open', openTime: Date.now(),
+        feePaid: openingFee, fundingPaid: 0, lastFundingTime: Date.now(),
+        pnl: -openingFee, pnlPercent: parseFloat(((-openingFee / (sig.entry * size)) * 100).toFixed(2)),
+        status: 'open', openTime: Date.now(),
       };
 
       updatedTrades.unshift(newTrade);

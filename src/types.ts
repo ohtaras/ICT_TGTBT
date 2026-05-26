@@ -28,6 +28,9 @@ export interface Trade {
   size: number;
   pnl: number;
   pnlPercent: number;
+  feePaid: number;
+  fundingPaid: number;
+  lastFundingTime: number;
   status: 'open' | 'won' | 'lost' | 'liquidated' | 'manual_close';
   openTime: number;
   closeTime?: number;
@@ -47,6 +50,8 @@ export interface Settings {
   riskPerTrade: number;
   initialBalance: number;
   leverage: number;
+  feeRate: number;
+  fundingRate: number;
   dataSource: 'binance';
   cloudSyncEnabled?: boolean;
 }
