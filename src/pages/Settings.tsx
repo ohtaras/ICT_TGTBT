@@ -490,12 +490,19 @@ export default function SettingsPage({ settings, onSave, onCloudRestore }: Setti
           </button>
           <button
             onClick={async () => {
-              if (confirm('Σίγουρα θέλεις να διαγράψεις ΟΛΑ τα δεδομένα του SERVER; Αυτό δεν αναιρείται!')) {
+              if (confirm('Σίγουρα θέλεις ΠΛΗΡΗ RESET; Θα σβηστούν ΟΛΑ τα data (server + local) και η σελίδα θα ξαναφορτωθεί.')) {
                 const ok = await deleteServerData();
-                setSyncMessage(ok
-                  ? { text: 'Server data cleared', type: 'success' }
-                  : { text: 'Failed to clear server data', type: 'error' }
-                );
+                if (ok) {
+                  // Clear localStorage so auto-sync doesn't re-upload old data
+                  localStorage.removeItem('ict_signals');
+                  localStorage.removeItem('ict_trades');
+                  localStorage.removeItem('ict_pairs');
+                  localStorage.removeItem('ict_settings');
+                  localStorage.removeItem('ict_equity_history');
+                  window.location.reload();
+                } else {
+                  setSyncMessage({ text: 'Failed to clear server data', type: 'error' });
+                }
               }
             }}
             className="px-4 py-2 rounded-lg bg-red-900/30 border border-red-700/30 hover:bg-red-900/50 text-red-500 text-sm font-medium transition-colors"
