@@ -4,7 +4,7 @@ import { Pool } from 'pg';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { startWorker } from './worker.js';
+import { startWorker, getWorkerStatus } from './worker.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -83,6 +83,11 @@ app.get('/api/status', async (_req: Request, res: Response) => {
     console.error('[status] error:', err);
     res.status(500).json({ error: 'Database error' });
   }
+});
+
+// Public worker status — shows last price check and ICT scan timestamps
+app.get('/api/worker-status', (_req: Request, res: Response) => {
+  res.json(getWorkerStatus());
 });
 
 // Optional API key auth — set API_KEY env var on Railway to enable
