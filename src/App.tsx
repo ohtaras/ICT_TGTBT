@@ -9,7 +9,7 @@ import SettingsPage from './pages/Settings';
 import {
   getSignals, saveSignals,
   getTrades, saveTrades,
-  getPairs,
+  getPairs, savePairs,
   addPair as storeAddPair,
   removePair as storeRemovePair,
   togglePair as storeTogglePair,
@@ -77,12 +77,16 @@ export default function App() {
       if (current.length === 0) return;
       const map = await fetchAllPrices(current);
       if (map.size === 0) return;
-      setPairs(prev => prev.map(p => {
-        const live = map.get(p.symbol);
-        return live && live.price > 0
-          ? { ...p, currentPrice: live.price, change24h: live.change24h, lastUpdate: Date.now() }
-          : p;
-      }));
+      setPairs(prev => {
+        const updated = prev.map(p => {
+          const live = map.get(p.symbol);
+          return live && live.price > 0
+            ? { ...p, currentPrice: live.price, change24h: live.change24h, lastUpdate: Date.now() }
+            : p;
+        });
+        savePairs(updated); // persist so refreshState doesn't reset prices to 0
+        return updated;
+      });
     };
     fetchLive();
     const t = setInterval(fetchLive, 5_000);
