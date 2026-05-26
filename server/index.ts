@@ -166,6 +166,101 @@ app.delete('/api/data', async (_req: Request, res: Response) => {
   }
 });
 
+// Patch a specific trade (e.g. manual close)
+app.patch('/api/trades/:id', async (req: Request, res: Response) => {
+  if (!process.env.DATABASE_URL) { res.status(503).json({ error: 'No database configured' }); return; }
+  try {
+    const { id } = req.params;
+    const patch = JSON.stringify(req.body);
+    await pool.query(`
+      UPDATE trading_data
+      SET trades = (
+        SELECT COALESCE(jsonb_agg(
+          CASE WHEN t->>'id' = $1 THEN t || $2::jsonb ELSE t END
+        ), '[]'::jsonb)
+        FROM jsonb_array_elements(trades) t
+      ), updated_at = NOW()
+      WHERE id = 1
+    `, [id, patch]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[db] PATCH trade error:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// Delete a specific trade
+app.delete('/api/trades/:id', async (req: Request, res: Response) => {
+  if (!process.env.DATABASE_URL) { res.status(503).json({ error: 'No database configured' }); return; }
+  try {
+    const { id } = req.params;
+    await pool.query(`
+      UPDATE trading_data
+      SET trades = (
+        SELECT COALESCE(jsonb_agg(t), '[]'::jsonb)
+        FROM jsonb_array_elements(trades) t
+        WHERE t->>'id' != $1
+      ), updated_at = NOW()
+      WHERE id = 1
+    `, [id]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[db] DELETE trade error:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// Delete a specific signal
+app.delete('/api/signals/:id', async (req: Request, res: Response) => {
+  if (!process.env.DATABASE_URL) { res.status(503).json({ error: 'No database configured' }); return; }
+  try {
+    const { id } = req.params;
+    await pool.query(`
+      UPDATE trading_data
+      SET signals = (
+        SELECT COALESCE(jsonb_agg(s), '[]'::jsonb)
+        FROM jsonb_array_elements(signals) s
+        WHERE s->>'id' != $1
+      ), updated_at = NOW()
+      WHERE id = 1
+    `, [id]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[db] DELETE signal error:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// Update settings only
+app.put('/api/settings', async (req: Request, res: Response) => {
+  if (!process.env.DATABASE_URL) { res.status(503).json({ error: 'No database configured' }); return; }
+  try {
+    await pool.query(
+      'UPDATE trading_data SET settings=$1, updated_at=NOW() WHERE id=1',
+      [JSON.stringify(req.body)]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[db] PUT settings error:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// Update pairs only
+app.put('/api/pairs', async (req: Request, res: Response) => {
+  if (!process.env.DATABASE_URL) { res.status(503).json({ error: 'No database configured' }); return; }
+  try {
+    await pool.query(
+      'UPDATE trading_data SET pairs=$1, updated_at=NOW() WHERE id=1',
+      [JSON.stringify(req.body)]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[db] PUT pairs error:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
 // Serve Vite build
 const staticDir = path.join(__dirname, '../dist');
 app.use(express.static(staticDir));
