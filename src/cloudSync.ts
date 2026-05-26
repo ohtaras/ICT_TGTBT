@@ -85,6 +85,60 @@ export function applyCloudData(data: CloudData) {
   _syncStatus = 'ok';
 }
 
+// ============ SERVER-SIDE MUTATIONS ============
+export async function closeTrade(id: string, closePrice: number): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/trades/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: apiHeaders(),
+      body: JSON.stringify({ status: 'manual_close', closeTime: Date.now(), closePrice }),
+    });
+    return res.ok;
+  } catch { return false; }
+}
+
+export async function deleteTrade(id: string): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/trades/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: apiHeaders(),
+    });
+    return res.ok;
+  } catch { return false; }
+}
+
+export async function deleteSignal(id: string): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/signals/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: apiHeaders(),
+    });
+    return res.ok;
+  } catch { return false; }
+}
+
+export async function updateSettings(settings: unknown): Promise<boolean> {
+  try {
+    const res = await fetch('/api/settings', {
+      method: 'PUT',
+      headers: apiHeaders(),
+      body: JSON.stringify(settings),
+    });
+    return res.ok;
+  } catch { return false; }
+}
+
+export async function updatePairs(pairs: unknown[]): Promise<boolean> {
+  try {
+    const res = await fetch('/api/pairs', {
+      method: 'PUT',
+      headers: apiHeaders(),
+      body: JSON.stringify(pairs),
+    });
+    return res.ok;
+  } catch { return false; }
+}
+
 // ============ TEST CONNECTION ============
 export async function testServerConnection(): Promise<boolean> {
   try {

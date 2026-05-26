@@ -1,5 +1,4 @@
 import { Signal, Trade, TradingPair, Settings, PortfolioStats } from './types';
-import { schedulCloudSync } from './cloudSync';
 
 const KEYS = {
   SIGNALS: 'ict_signals',
@@ -9,10 +8,6 @@ const KEYS = {
   EQUITY_HISTORY: 'ict_equity_history',
 };
 
-function triggerCloudSync() {
-  schedulCloudSync();
-}
-
 // Signals
 export function getSignals(): Signal[] {
   const data = localStorage.getItem(KEYS.SIGNALS);
@@ -21,7 +16,6 @@ export function getSignals(): Signal[] {
 
 export function saveSignals(signals: Signal[]) {
   localStorage.setItem(KEYS.SIGNALS, JSON.stringify(signals));
-  triggerCloudSync();
 }
 
 export function addSignal(signal: Signal) {
@@ -43,7 +37,6 @@ export function getTrades(): Trade[] {
 
 export function saveTrades(trades: Trade[]) {
   localStorage.setItem(KEYS.TRADES, JSON.stringify(trades));
-  triggerCloudSync();
 }
 
 export function addTrade(trade: Trade) {
@@ -99,7 +92,6 @@ export function getPairs(): TradingPair[] {
 
 export function savePairs(pairs: TradingPair[]) {
   localStorage.setItem(KEYS.PAIRS, JSON.stringify(pairs));
-  triggerCloudSync();
 }
 
 export function addPair(symbol: string) {
@@ -145,7 +137,6 @@ export function getSettings(): Settings {
 
 export function saveSettings(settings: Settings) {
   localStorage.setItem(KEYS.SETTINGS, JSON.stringify(settings));
-  triggerCloudSync();
 }
 
 // Equity History
@@ -159,7 +150,6 @@ export function addEquityPoint(equity: number) {
   history.push({ time: Date.now(), equity });
   if (history.length > 500) history.shift();
   localStorage.setItem(KEYS.EQUITY_HISTORY, JSON.stringify(history));
-  triggerCloudSync();
 }
 
 // Portfolio Stats
