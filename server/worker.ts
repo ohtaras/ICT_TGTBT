@@ -243,6 +243,7 @@ async function writeDB(pool: Pool, data: DBState, expectedUpdatedAt: Date): Prom
 
 // ============ ATOMIC TRADE OPS (no optimistic lock — safe even when ICT scan fires) ============
 
+// Patch a single trade by id
 async function patchTrade(pool: Pool, id: string, patch: Partial<Trade>): Promise<void> {
   await pool.query(`
     UPDATE trading_data
@@ -256,6 +257,40 @@ async function patchTrade(pool: Pool, id: string, patch: Partial<Trade>): Promis
   `, [id, JSON.stringify(patch)]);
 }
 
+// Patch multiple trades in ONE SQL call: patchMap = { tradeId: partialTrade, ... }
+async function patchTradesBatch(pool: Pool, patchMap: Record<string, Partial<Trade>>): Promise<void> {
+  if (Object.keys(patchMap).length === 0) return;
+  await pool.query(`
+    UPDATE trading_data
+    SET trades = (
+      SELECT COALESCE(jsonb_agg(
+        CASE WHEN $1::jsonb ? (t->>'id')
+          THEN t || ($1::jsonb->(t->>'id'))
+          ELSE t END
+      ), '[]'::jsonb)
+      FROM jsonb_array_elements(trades) t
+    ), updated_at = NOW()
+    WHERE id = 1
+  `, [JSON.stringify(patchMap)]);
+}
+
+// Patch multiple signals in ONE SQL call (safe — CASE leaves ICT scan's new signals untouched)
+async function patchSignalsBatch(pool: Pool, patchMap: Record<string, Partial<Signal>>): Promise<void> {
+  if (Object.keys(patchMap).length === 0) return;
+  await pool.query(`
+    UPDATE trading_data
+    SET signals = (
+      SELECT COALESCE(jsonb_agg(
+        CASE WHEN $1::jsonb ? (s->>'id')
+          THEN s || ($1::jsonb->(s->>'id'))
+          ELSE s END
+      ), '[]'::jsonb)
+      FROM jsonb_array_elements(signals) s
+    ), updated_at = NOW()
+    WHERE id = 1
+  `, [JSON.stringify(patchMap)]);
+}
+
 async function prependTrades(pool: Pool, newTrades: Trade[]): Promise<void> {
   if (newTrades.length === 0) return;
   await pool.query(`
@@ -266,7 +301,7 @@ async function prependTrades(pool: Pool, newTrades: Trade[]): Promise<void> {
   `, [JSON.stringify(newTrades)]);
 }
 
-// ============ PRICE CHECK (every 15s) ============
+// ============ PRICE CHECK (every 5s) ============
 let priceCheckRunning = false;
 
 async function runPriceCheck(pool: Pool): Promise<void> {
@@ -282,26 +317,18 @@ async function runPriceCheck(pool: Pool): Promise<void> {
     const priceMap = await fetchPrices(enabledPairs);
     if (priceMap.size === 0) return;
 
-    // Update pair prices
-    const updatedPairs = db.pairs.map(p => {
-      const d = priceMap.get(p.symbol);
-      return d && d.price > 0
-        ? { ...p, currentPrice: d.price, change24h: d.change24h, lastUpdate: Date.now() }
-        : p;
-    });
-
     const feeRate     = (db.settings.feeRate     ?? 0.04) / 100;
     const fundingRate = (db.settings.fundingRate ?? 0.01) / 100;
-    const FUNDING_INTERVAL = 8 * 60 * 60 * 1000; // 8 hours in ms
+    const FUNDING_INTERVAL = 8 * 60 * 60 * 1000;
 
-    // Check SL/TP on open trades + apply funding
-    let tradesChanged = false;
-    const tradesToClose: { id: string; patch: Partial<Trade> }[] = [];
+    // Build patch map for ALL open trades (closures + running P&L updates)
+    const tradePatchMap: Record<string, Partial<Trade>> = {};
+    let anyTradeClosed = false;
 
-    const updatedTrades = db.trades.map(trade => {
-      if (trade.status !== 'open') return trade;
+    for (const trade of db.trades) {
+      if (trade.status !== 'open') continue;
       const d = priceMap.get(trade.pair);
-      if (!d || d.price <= 0) return trade;
+      if (!d || d.price <= 0) continue;
 
       const price = d.price;
       let { feePaid, fundingPaid, lastFundingTime } = trade;
@@ -314,13 +341,12 @@ async function runPriceCheck(pool: Pool): Promise<void> {
           : -(price * trade.size * fundingRate * fundingPeriodsElapsed);
         fundingPaid = parseFloat((fundingPaid + periodFunding).toFixed(4));
         lastFundingTime = lastFundingTime + fundingPeriodsElapsed * FUNDING_INTERVAL;
-        tradesChanged = true;
       }
 
       const exitResult = checkTradeExit(trade.type, price, trade.sl, trade.tp, trade.liquidationPrice);
 
       if (exitResult) {
-        tradesChanged = true;
+        anyTradeClosed = true;
         const closePrice = exitResult === 'won'
           ? trade.tp
           : exitResult === 'liquidated'
@@ -329,17 +355,15 @@ async function runPriceCheck(pool: Pool): Promise<void> {
 
         const closingFee = parseFloat((closePrice * trade.size * feeRate).toFixed(4));
         const totalFeePaid = parseFloat((feePaid + closingFee).toFixed(4));
-
         const pricePnl = exitResult === 'liquidated'
           ? -(trade.entryPrice * trade.size) / trade.leverage
           : trade.type === 'LONG'
           ? (closePrice - trade.entryPrice) * trade.size
           : (trade.entryPrice - closePrice) * trade.size;
-
         const closePnl = parseFloat((pricePnl - totalFeePaid - fundingPaid).toFixed(4));
         const notional  = trade.entryPrice * trade.size;
 
-        const closedPatch: Partial<Trade> = {
+        tradePatchMap[trade.id] = {
           currentPrice: price,
           status: exitResult as Trade['status'],
           closeTime: Date.now(), closePrice,
@@ -347,76 +371,91 @@ async function runPriceCheck(pool: Pool): Promise<void> {
           pnl: closePnl,
           pnlPercent: parseFloat(((closePnl / notional) * 100).toFixed(2)),
         };
-
-        // Queue for atomic write (immune to optimistic lock race with ICT scan)
-        tradesToClose.push({ id: trade.id, patch: closedPatch });
         console.log(`[worker] ${exitResult.toUpperCase()}: ${trade.pair} ${trade.type} PnL $${closePnl.toFixed(2)} (fees $${totalFeePaid.toFixed(2)} funding $${fundingPaid.toFixed(2)})`);
-        return { ...trade, ...closedPatch };
-      }
-
-      // Running P&L (net of fees + funding already paid)
-      const pricePnl = trade.type === 'LONG'
-        ? (price - trade.entryPrice) * trade.size
-        : (trade.entryPrice - price) * trade.size;
-      const netPnl = parseFloat((pricePnl - feePaid - fundingPaid).toFixed(4));
-      const notional = trade.entryPrice * trade.size;
-
-      return {
-        ...trade, currentPrice: price, feePaid, fundingPaid, lastFundingTime,
-        pnl: netPnl,
-        pnlPercent: parseFloat(((netPnl / notional) * 100).toFixed(2)),
-      };
-    });
-
-    // ATOMIC closures — written directly, no optimistic lock.
-    // Guaranteed to succeed even if ICT scan fires concurrently.
-    for (const { id, patch } of tradesToClose) {
-      await patchTrade(pool, id, patch);
-    }
-
-    // Update equity history on trade close
-    let updatedEquity = db.equityHistory;
-    if (tradesToClose.length > 0) {
-      const balance = getBalance(updatedTrades, db.settings.initialBalance);
-      updatedEquity = [...db.equityHistory, { time: Date.now(), equity: balance }].slice(-500);
-    }
-
-    // Check pending signals for triggers
-    let signalsChanged = false;
-    const newlyOpenedPairs = new Set(
-      updatedTrades.filter(t => t.status === 'open').map(t => t.pair)
-    );
-    const tradesToOpen: Trade[] = [];
-
-    const updatedSignals = db.signals.map(sig => {
-      if (sig.status !== 'pending') return sig;
-
-      // Always expire stale signals regardless of autoTrading setting
-      if (Date.now() - sig.timestamp > 24 * 60 * 60 * 1000) {
-        signalsChanged = true;
-        return { ...sig, status: 'expired' as const, expiredAt: Date.now() };
-      }
-
-      if (!db.settings.autoTrading) return sig;
-
-      const d = priceMap.get(sig.pair);
-      if (!d || d.price <= 0) return sig;
-
-      if (!checkSignalTrigger(sig, d.price)) return sig;
-
-      signalsChanged = true;
-
-      // Reject if pair already has open trade (including one opened this cycle)
-      if (newlyOpenedPairs.has(sig.pair)) {
-        return {
-          ...sig, status: 'rejected' as const, rejectedAt: Date.now(),
-          rejectionReason: 'Υπάρχει ήδη ανοιχτή θέση',
+      } else {
+        // Running P&L update
+        const pricePnl = trade.type === 'LONG'
+          ? (price - trade.entryPrice) * trade.size
+          : (trade.entryPrice - price) * trade.size;
+        const netPnl = parseFloat((pricePnl - feePaid - fundingPaid).toFixed(4));
+        const notional = trade.entryPrice * trade.size;
+        tradePatchMap[trade.id] = {
+          currentPrice: price, feePaid, fundingPaid, lastFundingTime,
+          pnl: netPnl,
+          pnlPercent: parseFloat(((netPnl / notional) * 100).toFixed(2)),
         };
       }
+    }
 
-      // Futures position sizing
+    // ATOMIC: update ALL trades (closures + running P&L) in one SQL call
+    await patchTradesBatch(pool, tradePatchMap);
+
+    // ATOMIC: update pair prices
+    const updatedPairs = db.pairs.map(p => {
+      const d = priceMap.get(p.symbol);
+      return d && d.price > 0
+        ? { ...p, currentPrice: d.price, change24h: d.change24h, lastUpdate: Date.now() }
+        : p;
+    });
+    await pool.query(
+      `UPDATE trading_data SET pairs = $1::jsonb, updated_at = NOW() WHERE id = 1`,
+      [JSON.stringify(updatedPairs)]
+    );
+
+    // ATOMIC: append equity point when a trade closes
+    if (anyTradeClosed) {
+      const updatedTradesForBalance = db.trades.map(t =>
+        tradePatchMap[t.id] ? { ...t, ...tradePatchMap[t.id] } : t
+      );
+      const balance = getBalance(updatedTradesForBalance, db.settings.initialBalance);
+      const updatedEquity = [...db.equityHistory, { time: Date.now(), equity: balance }].slice(-500);
+      await pool.query(
+        `UPDATE trading_data SET equity_history = $1::jsonb, updated_at = NOW() WHERE id = 1`,
+        [JSON.stringify(updatedEquity)]
+      );
+    }
+
+    // Check pending signals for triggers / expiry
+    const closedPairs = new Set(
+      Object.keys(tradePatchMap).filter(id => {
+        const patch = tradePatchMap[id];
+        return patch.status && patch.status !== 'open';
+      }).map(id => db.trades.find(t => t.id === id)?.pair).filter(Boolean) as string[]
+    );
+    const newlyOpenedPairs = new Set(
+      db.trades
+        .filter(t => t.status === 'open' && !closedPairs.has(t.pair))
+        .map(t => t.pair)
+    );
+    const tradesToOpen: Trade[] = [];
+    const signalPatchMap: Record<string, Partial<Signal>> = {};
+
+    for (const sig of db.signals) {
+      if (sig.status !== 'pending') continue;
+
+      if (Date.now() - sig.timestamp > 24 * 60 * 60 * 1000) {
+        signalPatchMap[sig.id] = { status: 'expired' as const, expiredAt: Date.now() };
+        continue;
+      }
+
+      if (!db.settings.autoTrading) continue;
+
+      const d = priceMap.get(sig.pair);
+      if (!d || d.price <= 0) continue;
+
+      if (!checkSignalTrigger(sig, d.price)) continue;
+
+      if (newlyOpenedPairs.has(sig.pair)) {
+        signalPatchMap[sig.id] = {
+          status: 'rejected' as const, rejectedAt: Date.now(),
+          rejectionReason: 'Υπάρχει ήδη ανοιχτή θέση',
+        };
+        continue;
+      }
+
       const leverage        = db.settings.leverage ?? 10;
-      const balance         = getBalance(updatedTrades, db.settings.initialBalance);
+      const currentTrades   = db.trades.map(t => tradePatchMap[t.id] ? { ...t, ...tradePatchMap[t.id] } : t);
+      const balance         = getBalance([...currentTrades, ...tradesToOpen], db.settings.initialBalance);
       const riskAmount      = balance * (db.settings.riskPerTrade / 100);
       const riskPerUnit     = Math.abs(sig.entry - sig.sl);
       const sizeByRisk      = riskPerUnit > 0 ? riskAmount / riskPerUnit : 0;
@@ -428,10 +467,9 @@ async function runPriceCheck(pool: Pool): Promise<void> {
           : sig.entry * (1 + 1 / leverage)
       ).toPrecision(8));
 
-      if (size <= 0) return sig;
+      if (size <= 0) continue;
 
-      const openingFee  = parseFloat((sig.entry * size * feeRate).toFixed(4));
-
+      const openingFee = parseFloat((sig.entry * size * feeRate).toFixed(4));
       const newTrade: Trade = {
         id: generateId(), signalId: sig.id, pair: sig.pair,
         type: sig.type === 'BULLISH' ? 'LONG' : 'SHORT',
@@ -443,28 +481,18 @@ async function runPriceCheck(pool: Pool): Promise<void> {
       };
 
       tradesToOpen.push(newTrade);
-      updatedTrades.unshift(newTrade);
       newlyOpenedPairs.add(sig.pair);
+      signalPatchMap[sig.id] = { status: 'triggered' as const, triggeredAt: Date.now() };
       console.log(`[worker] TRADE OPENED: ${sig.pair} ${newTrade.type} @ ${newTrade.entryPrice} size=${size}`);
+    }
 
-      return { ...sig, status: 'triggered' as const, triggeredAt: Date.now() };
-    });
-
-    // ATOMIC trade opens — prepend directly, no optimistic lock.
+    // ATOMIC: open new trades
     if (tradesToOpen.length > 0) {
       await prependTrades(pool, tradesToOpen);
     }
 
-    // Non-critical write: pair prices, equity, signal status, running P&L.
-    // May be skipped if ICT scan changed updated_at — that's OK.
-    // Critical ops (closures, opens) already committed above.
-    await writeDB(pool, {
-      signals:       signalsChanged ? updatedSignals : db.signals,
-      trades:        updatedTrades,
-      pairs:         updatedPairs,
-      settings:      db.settings,
-      equityHistory: updatedEquity,
-    }, db.updatedAt);
+    // ATOMIC: update signal statuses (CASE-based — never overwrites ICT scan's new signals)
+    await patchSignalsBatch(pool, signalPatchMap);
 
   } catch (err) {
     console.error('[worker] price check error:', err);
