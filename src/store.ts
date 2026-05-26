@@ -120,18 +120,21 @@ export function togglePair(symbol: string) {
   savePairs(pairs);
 }
 
+const DEFAULT_SETTINGS: Settings = {
+  autoTrading: false,
+  riskPerTrade: 2,
+  initialBalance: 10000,
+  leverage: 10,
+  feeRate: 0.04,
+  fundingRate: 0.01,
+};
+
 // Settings
 export function getSettings(): Settings {
   const data = localStorage.getItem(KEYS.SETTINGS);
-  if (data) return JSON.parse(data);
-  return {
-    autoTrading: false,
-    riskPerTrade: 2,
-    initialBalance: 10000,
-    leverage: 10,
-    feeRate: 0.04,
-    fundingRate: 0.01,
-  };
+  if (!data) return { ...DEFAULT_SETTINGS };
+  // Always merge with defaults so missing fields after a reset get sensible values
+  return { ...DEFAULT_SETTINGS, ...JSON.parse(data) };
 }
 
 export function saveSettings(settings: Settings) {
