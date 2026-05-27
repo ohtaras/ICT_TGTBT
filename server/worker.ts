@@ -59,7 +59,7 @@ const OKX_BASE = 'https://www.okx.com';
 const invalidOKXSymbols = new Set<string>();
 
 function toOKXId(symbol: string): string {
-  return symbol.endsWith('USDT') ? symbol.slice(0, -4) + '-USDT' : symbol;
+  return symbol.endsWith('USDT') ? symbol.slice(0, -4) + '-USDT-SWAP' : symbol;
 }
 
 async function fetchCandles(symbol: string, interval = '1H', limit = 200): Promise<Candle[]> {
@@ -92,7 +92,7 @@ async function fetchCandles(symbol: string, interval = '1H', limit = 200): Promi
 async function fetchPrices(pairs: TradingPair[]): Promise<Map<string, { price: number; change24h: number }>> {
   const results = new Map<string, { price: number; change24h: number }>();
   try {
-    const res = await fetch(`${OKX_BASE}/api/v5/market/tickers?instType=SPOT`);
+    const res = await fetch(`${OKX_BASE}/api/v5/market/tickers?instType=SWAP`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json() as {
       code: string;
@@ -101,7 +101,7 @@ async function fetchPrices(pairs: TradingPair[]): Promise<Map<string, { price: n
     if (data.code !== '0') throw new Error(`OKX error ${data.code}`);
     const symbolSet = new Set(pairs.map(p => p.symbol));
     for (const item of data.data) {
-      const symbol = item.instId.replace('-USDT', 'USDT');
+      const symbol = item.instId.replace('-USDT-SWAP', 'USDT');
       if (symbolSet.has(symbol)) {
         const price = parseFloat(item.last);
         const open24h = parseFloat(item.open24h);
