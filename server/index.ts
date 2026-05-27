@@ -90,21 +90,21 @@ app.get('/api/worker-status', (_req: Request, res: Response) => {
   res.json(getWorkerStatus());
 });
 
-// Diagnostic: test Binance + Bybit connectivity from the server side
+// Diagnostic: test OKX connectivity from the server side
 app.get('/api/debug-worker', async (_req: Request, res: Response) => {
   const results: Record<string, unknown> = {};
   const endpoints = [
-    { key: 'binance_ping',   url: 'https://api.binance.com/api/v3/ping' },
-    { key: 'bybit_tickers',  url: 'https://api.bybit.com/v5/market/tickers?category=linear&symbol=BTCUSDT' },
-    { key: 'bybit_klines',   url: 'https://api.bybit.com/v5/market/kline?category=linear&symbol=BTCUSDT&interval=60&limit=1' },
+    { key: 'okx_tickers', url: 'https://www.okx.com/api/v5/market/tickers?instType=SPOT' },
+    { key: 'okx_candles', url: 'https://www.okx.com/api/v5/market/candles?instId=BTC-USDT&bar=1H&limit=1' },
   ];
   for (const { key, url } of endpoints) {
     try {
       const r = await fetch(url, { signal: AbortSignal.timeout(5000) });
       results[key] = { ok: r.ok, status: r.status };
-      if (r.ok && key === 'bybit_tickers') {
-        const d = await r.json() as { result: { list: { lastPrice: string }[] } };
-        results[key] = { ok: true, btcPrice: d.result?.list?.[0]?.lastPrice };
+      if (r.ok && key === 'okx_tickers') {
+        const d = await r.json() as { code: string; data: { instId: string; last: string }[] };
+        const btc = d.data?.find((t: { instId: string }) => t.instId === 'BTC-USDT');
+        results[key] = { ok: d.code === '0', btcPrice: btc?.last };
       }
     } catch (err) {
       results[key] = { ok: false, error: String(err) };

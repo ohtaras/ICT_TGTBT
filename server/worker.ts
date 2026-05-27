@@ -52,17 +52,21 @@ function getBalance(trades: Trade[], initialBalance: number): number {
   return initialBalance + closed.reduce((sum, t) => sum + t.pnl, 0);
 }
 
-// ============ BYBIT API (Binance returns HTTP 451 from Railway — geo-blocked) ============
-const BYBIT_BASE = 'https://api.bybit.com';
+// ============ OKX API (Binance=HTTP 451, Bybit=HTTP 403 from Railway cloud IPs) ============
+const OKX_BASE = 'https://www.okx.com';
 
-async function fetchCandles(symbol: string, interval = '60', limit = 200): Promise<Candle[]> {
+function toOKXId(symbol: string): string {
+  return symbol.endsWith('USDT') ? symbol.slice(0, -4) + '-USDT' : symbol;
+}
+
+async function fetchCandles(symbol: string, interval = '1H', limit = 200): Promise<Candle[]> {
   try {
-    const res = await fetch(`${BYBIT_BASE}/v5/market/kline?category=linear&symbol=${symbol}&interval=${interval}&limit=${limit}`);
+    const res = await fetch(`${OKX_BASE}/api/v5/market/candles?instId=${toOKXId(symbol)}&bar=${interval}&limit=${limit}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json() as { retCode: number; result: { list: string[][] } };
-    if (data.retCode !== 0) throw new Error(`Bybit error ${data.retCode}`);
-    // Bybit returns newest-first — reverse to oldest-first (same order as Binance)
-    return data.result.list.reverse().map(k => ({
+    const data = await res.json() as { code: string; data: string[][] };
+    if (data.code !== '0') throw new Error(`OKX error ${data.code}`);
+    // OKX returns newest-first — reverse to oldest-first
+    return data.data.reverse().map(k => ({
       time:   parseInt(k[0]),
       open:   parseFloat(k[1]),
       high:   parseFloat(k[2]),
@@ -79,20 +83,22 @@ async function fetchCandles(symbol: string, interval = '60', limit = 200): Promi
 async function fetchPrices(pairs: TradingPair[]): Promise<Map<string, { price: number; change24h: number }>> {
   const results = new Map<string, { price: number; change24h: number }>();
   try {
-    // One call returns all linear (USDT perpetual) tickers
-    const res = await fetch(`${BYBIT_BASE}/v5/market/tickers?category=linear`);
+    const res = await fetch(`${OKX_BASE}/api/v5/market/tickers?instType=SPOT`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json() as {
-      retCode: number;
-      result: { list: { symbol: string; lastPrice: string; price24hPcnt: string }[] };
+      code: string;
+      data: { instId: string; last: string; open24h: string }[];
     };
-    if (data.retCode !== 0) throw new Error(`Bybit error ${data.retCode}`);
+    if (data.code !== '0') throw new Error(`OKX error ${data.code}`);
     const symbolSet = new Set(pairs.map(p => p.symbol));
-    for (const item of data.result.list) {
-      if (symbolSet.has(item.symbol)) {
-        results.set(item.symbol, {
-          price:     parseFloat(item.lastPrice),
-          change24h: parseFloat(item.price24hPcnt) * 100, // decimal → percent
+    for (const item of data.data) {
+      const symbol = item.instId.replace('-USDT', 'USDT');
+      if (symbolSet.has(symbol)) {
+        const price = parseFloat(item.last);
+        const open24h = parseFloat(item.open24h);
+        results.set(symbol, {
+          price,
+          change24h: open24h > 0 ? ((price - open24h) / open24h) * 100 : 0,
         });
       }
     }
@@ -540,7 +546,7 @@ async function runICTScan(pool: Pool): Promise<void> {
 
     for (const pair of enabledPairs) {
       try {
-        const candles = await fetchCandles(pair.symbol, '1h', 200);
+        const candles = await fetchCandles(pair.symbol, '1H', 200);
         if (candles.length < 30) continue;
 
         const pairSignals = ictCoreEngine(candles, pair.symbol);
