@@ -1,4 +1,5 @@
 import { PortfolioStats, Trade } from '../types';
+import { fmtDate } from '../utils/time';
 import { BarChart3, TrendingUp, Target, AlertTriangle, Award, Percent } from 'lucide-react';
 import {
   LineChart,
@@ -26,7 +27,7 @@ export default function Analytics({ stats, trades, equityHistory, initialBalance
   // Build equity curve from trades if no equity history
   const equityData = equityHistory.length > 0
     ? equityHistory.map((p) => ({
-        date: new Date(p.time).toLocaleDateString(),
+        date: fmtDate(p.time),
         equity: parseFloat(p.equity.toFixed(2)),
       }))
     : buildEquityCurve(closedTrades, initialBalance);
@@ -245,9 +246,7 @@ function buildEquityCurve(trades: Trade[], initialBalance: number) {
   for (const trade of [...trades].reverse()) {
     balance += trade.pnl;
     data.push({
-      date: trade.closeTime
-        ? new Date(trade.closeTime).toLocaleDateString()
-        : new Date(trade.openTime).toLocaleDateString(),
+      date: fmtDate(trade.closeTime ?? trade.openTime),
       equity: parseFloat(balance.toFixed(2)),
     });
   }

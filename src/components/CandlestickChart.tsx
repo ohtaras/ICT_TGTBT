@@ -69,6 +69,16 @@ export default function CandlestickChart({ symbol, onClose, priceLines, tradeMar
   const [priceChange, setPriceChange] = useState(0);
   const [tradeOutOfRange, setTradeOutOfRange] = useState(false);
   const [liveExitPrice, setLiveExitPrice] = useState<number | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  // Auto-refresh: every 30s for short intervals, 60s for 1H+
+  useEffect(() => {
+    const intervalObj = INTERVALS.find(i => i.value === activeInterval);
+    const ms = intervalObj?.ms ?? 3_600_000;
+    const refreshMs = ms <= 900_000 ? 30_000 : 60_000;
+    const t = setInterval(() => setRefreshKey(k => k + 1), refreshMs);
+    return () => clearInterval(t);
+  }, [activeInterval]);
 
   useEffect(() => {
     if (!chartContainerRef.current) return;
@@ -319,7 +329,7 @@ export default function CandlestickChart({ symbol, onClose, priceLines, tradeMar
       chart.remove();
       chartRef.current = null;
     };
-  }, [symbol, activeInterval, priceLines, tradeMarker]);
+  }, [symbol, activeInterval, priceLines, tradeMarker, refreshKey]);
 
   const baseCoin = symbol.replace('USDT', '');
 
@@ -468,7 +478,10 @@ export default function CandlestickChart({ symbol, onClose, priceLines, tradeMar
           )}
 
           {!hasLines && !hasTrade && (
-            <span className="ml-auto text-[10px] sm:text-xs text-gray-600 whitespace-nowrap">📡 Binance Data</span>
+            <span className="ml-auto text-[10px] sm:text-xs text-gray-600 whitespace-nowrap flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse inline-block" />
+              Live · Binance
+            </span>
           )}
 
           {hasTrade && (
@@ -494,7 +507,7 @@ export default function CandlestickChart({ symbol, onClose, priceLines, tradeMar
         {/* Footer */}
         <div className="px-3 sm:px-4 py-2 border-t border-gray-800 text-center">
           <p className="text-[10px] sm:text-[11px] text-gray-600">
-            📊 {symbol} • {INTERVALS.find(i => i.value === activeInterval)?.label} Chart • Data from Binance
+            📊 {symbol} • {INTERVALS.find(i => i.value === activeInterval)?.label} Chart • Live Binance data • auto-refresh {INTERVALS.find(i => i.value === activeInterval)?.ms ?? 3_600_000 <= 900_000 ? '30s' : '60s'}
             {hasLines && ' • Entry/SL/TP lines shown'}
             {hasTrade && ' • Trade entry→exit connected'}
             {' • Click outside or ✕ to close'}

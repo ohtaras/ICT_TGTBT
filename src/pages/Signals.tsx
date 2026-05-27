@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import { Signal, Settings, TradingPair } from '../types';
+import { fmtDateTime, fmtDayHeader } from '../utils/time';
 import CandlestickChart, { PriceLine } from '../components/CandlestickChart';
 import { Radio, Clock, ArrowUpRight, ArrowDownRight, BarChart3, XCircle, ChevronDown, ChevronRight, Eye, EyeOff, Trash2, DollarSign, TrendingUp } from 'lucide-react';
 
@@ -44,12 +45,7 @@ function calculateRiskMetrics(signal: Signal, settings: Settings) {
 function groupByDate<T extends { timestamp: number }>(items: T[]): Record<string, T[]> {
   const groups: Record<string, T[]> = {};
   items.forEach((item) => {
-    const dateKey = new Date(item.timestamp).toLocaleDateString('el-GR', {
-      weekday: 'long',
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-    });
+    const dateKey = fmtDayHeader(item.timestamp);
     if (!groups[dateKey]) groups[dateKey] = [];
     groups[dateKey].push(item);
   });
@@ -466,23 +462,23 @@ function SignalCard({
         <div className="space-y-1 border-t border-gray-700/30 pt-2">
           <div className="flex items-center gap-1 text-xs text-gray-500">
             <Clock className="w-3 h-3" />
-            🔍 Detected: <span className="text-gray-300">{new Date(signal.timestamp).toLocaleString('el-GR')}</span>
+            🔍 Detected: <span className="text-gray-300">{fmtDateTime(signal.timestamp)}</span>
           </div>
           {signal.status === 'triggered' && signal.triggeredAt && (
             <div className="flex items-center gap-1 text-xs text-blue-400">
-              ✅ Triggered: <span>{new Date(signal.triggeredAt).toLocaleString('el-GR')}</span>
+              ✅ Triggered: <span>{fmtDateTime(signal.triggeredAt)}</span>
             </div>
           )}
           {signal.status === 'expired' && (
             <div className="flex items-center gap-1 text-xs text-gray-500">
-              ⌛ Expired {signal.expiredAt ? new Date(signal.expiredAt).toLocaleString('el-GR') : '(24h timeout)'}
+              ⌛ Expired {signal.expiredAt ? fmtDateTime(signal.expiredAt) : '(24h timeout)'}
             </div>
           )}
           {signal.status === 'rejected' && (
             <div className="space-y-1">
               <div className="flex items-center gap-1 text-xs text-red-400">
                 <XCircle className="w-3 h-3" />
-                🚫 Rejected: <span>{signal.rejectedAt ? new Date(signal.rejectedAt).toLocaleString('el-GR') : 'N/A'}</span>
+                🚫 Rejected: <span>{signal.rejectedAt ? fmtDateTime(signal.rejectedAt) : 'N/A'}</span>
               </div>
               {signal.rejectionReason && (
                 <div className="text-xs text-red-300 bg-red-500/10 px-2 py-1 rounded">
