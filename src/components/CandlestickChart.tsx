@@ -410,7 +410,7 @@ export default function CandlestickChart({ symbol, onClose, priceLines, tradeMar
           {!hasLines && !hasTrade && (
             <span className="ml-auto text-[10px] sm:text-xs text-gray-600 whitespace-nowrap flex items-center gap-1">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse inline-block" />
-              Live · Binance
+              Live · Binance Futures
             </span>
           )}
           {hasTrade && (
@@ -436,7 +436,7 @@ export default function CandlestickChart({ symbol, onClose, priceLines, tradeMar
         {/* Footer */}
         <div className="px-3 sm:px-4 py-2 border-t border-gray-800 text-center shrink-0">
           <p className="text-[10px] sm:text-[11px] text-gray-600">
-            {symbol} · {ivLabel} · Live Binance · auto-refresh {ivMs <= 900_000 ? '30s' : '60s'} · Tap outside or ✕ to close
+            {symbol} · {ivLabel} · Live Binance Futures · auto-refresh {ivMs <= 900_000 ? '30s' : '60s'} · Tap outside or ✕ to close
           </p>
         </div>
       </div>
