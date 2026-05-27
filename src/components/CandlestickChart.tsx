@@ -163,6 +163,11 @@ export default function CandlestickChart({ symbol, onClose, priceLines, tradeMar
     const candles = await fetchCandles(symbol, activeInterval, 500);
     if (!candles.length) { setLoading(false); return; }
 
+    // Capture current view before setData() — lightweight-charts auto-scrolls on data update
+    const savedRange = firstLoadRef.current
+      ? null
+      : chartRef.current?.timeScale().getVisibleRange() ?? null;
+
     cs.setData(candles.map(c => ({
       time: (c.time / 1000) as Time,
       open: c.open, high: c.high, low: c.low, close: c.close,
@@ -232,6 +237,9 @@ export default function CandlestickChart({ symbol, onClose, priceLines, tradeMar
     if (firstLoadRef.current) {
       chartRef.current?.timeScale().fitContent();
       firstLoadRef.current = false;
+    } else if (savedRange) {
+      // Restore exactly where the user was before the data refresh
+      chartRef.current?.timeScale().setVisibleRange(savedRange);
     }
     setLoading(false);
   // eslint-disable-next-line react-hooks/exhaustive-deps
