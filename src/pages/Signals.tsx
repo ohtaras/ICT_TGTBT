@@ -100,6 +100,20 @@ export default function Signals({ signals, settings, pairs, onDeleteSignal }: Si
         <span className="text-sm text-gray-500">({signals.length} total)</span>
       </div>
 
+      {/* Auto-trading OFF warning */}
+      {!settings.autoTrading && pendingSignals.length > 0 && (
+        <div className="flex items-start gap-3 px-4 py-3 bg-red-500/10 border border-red-500/40 rounded-xl text-sm">
+          <span className="text-xl leading-none">🔴</span>
+          <div>
+            <p className="font-bold text-red-400">Auto-trading είναι ΑΠΕΝΕΡΓΟΠΟΙΗΜΕΝΟ</p>
+            <p className="text-red-300/80 text-xs mt-0.5">
+              Υπάρχουν {pendingSignals.length} pending signals αλλά καμία εντολή δεν θα ανοίξει αυτόματα.
+              Πήγαινε στο <span className="font-semibold">Dashboard → Auto Trading</span> για να το ενεργοποιήσεις.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Category Toggles */}
       <div className="flex flex-wrap gap-2 p-3 bg-gray-800/50 rounded-lg border border-gray-700">
         <span className="text-xs text-gray-400 mr-2">Εμφάνιση:</span>

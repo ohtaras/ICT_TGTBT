@@ -77,16 +77,25 @@ export default function Dashboard({
       )}
 
       {/* Data Source + Auto Trading Toggle */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+      <div className={`border rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 transition-colors ${
+        autoTrading
+          ? 'bg-gray-900 border-gray-800'
+          : 'bg-red-500/5 border-red-500/40'
+      }`}>
         <div>
           <h2 className="text-lg font-semibold flex items-center gap-2">
-            <Activity className="w-5 h-5 text-amber-400" />
+            <Activity className={`w-5 h-5 ${autoTrading ? 'text-amber-400' : 'text-red-400'}`} />
             Auto Trading
+            {!autoTrading && (
+              <span className="text-xs font-bold px-2 py-0.5 rounded bg-red-500/20 text-red-400 border border-red-500/30 animate-pulse">
+                ΑΠΕΝΕΡΓΟΠΟΙΗΜΕΝΟ
+              </span>
+            )}
           </h2>
-          <p className="text-sm text-gray-400 mt-1">
+          <p className={`text-sm mt-1 ${autoTrading ? 'text-gray-400' : 'text-red-300/80'}`}>
             {autoTrading
               ? 'Bot is scanning pairs and creating trades automatically'
-              : 'Bot is paused — signals only, no auto trades'}
+              : '⚠️ Bot σε παύση — τα signals ΔΕΝ ανοίγουν εντολές αυτόματα'}
           </p>
           <div className="flex flex-wrap items-center gap-3 mt-1">
             <p className="text-xs text-gray-500 flex items-center gap-1.5">
@@ -106,13 +115,16 @@ export default function Dashboard({
         </div>
         <button
           onClick={onToggleAutoTrading}
-          className={`px-5 py-2.5 rounded-lg font-medium text-sm transition-all ${
+          className={`shrink-0 px-6 py-3 rounded-xl font-bold text-sm transition-all ${
             autoTrading
-              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30'
-              : 'bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30'
+              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 hover:bg-emerald-500/30'
+              : 'bg-red-500 text-white border border-red-400 hover:bg-red-600 shadow-lg shadow-red-500/20'
           }`}
         >
-          {autoTrading ? '● ACTIVE' : '○ INACTIVE'}
+          {autoTrading
+            ? <span className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse inline-block" />ACTIVE</span>
+            : <span className="flex items-center gap-2">▶ ΕΝΕΡΓΟΠΟΙΗΣΗ</span>
+          }
         </button>
       </div>
 
