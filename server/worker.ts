@@ -76,28 +76,27 @@ async function fetchCandles(symbol: string, interval = '1h', limit = 200): Promi
 
 async function fetchPrices(pairs: TradingPair[]): Promise<Map<string, { price: number; change24h: number }>> {
   const results = new Map<string, { price: number; change24h: number }>();
+  // Use ticker/price (lighter endpoint, less likely to be rate-limited/blocked)
+  // change24h not needed by worker — only for display, handled by browser-side fetch
   try {
     const symbols = pairs.map(p => `"${p.symbol}"`).join(',');
-    const url = `${BINANCE_BASE}/api/v3/ticker/24hr?symbols=${encodeURIComponent('[' + symbols + ']')}`;
+    const url = `${BINANCE_BASE}/api/v3/ticker/price?symbols=${encodeURIComponent('[' + symbols + ']')}`;
     const res = await fetch(url);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json() as { symbol: string; lastPrice: string; priceChangePercent: string }[];
+    const data = await res.json() as { symbol: string; price: string }[];
     for (const item of data) {
-      results.set(item.symbol, {
-        price: parseFloat(item.lastPrice),
-        change24h: parseFloat(item.priceChangePercent),
-      });
+      results.set(item.symbol, { price: parseFloat(item.price), change24h: 0 });
     }
   } catch (err) {
     console.error('[worker] batch prices failed, trying individually:', err);
     for (const pair of pairs) {
       try {
-        const url = `${BINANCE_BASE}/api/v3/ticker/24hr?symbol=${pair.symbol}`;
+        const url = `${BINANCE_BASE}/api/v3/ticker/price?symbol=${pair.symbol}`;
         const res = await fetch(url);
         if (!res.ok) { console.warn(`[worker] skip ${pair.symbol}`); continue; }
-        const item = await res.json() as { symbol: string; lastPrice: string; priceChangePercent: string };
-        results.set(item.symbol, { price: parseFloat(item.lastPrice), change24h: parseFloat(item.priceChangePercent) });
-      } catch { /* skip bad symbol */ }
+        const item = await res.json() as { symbol: string; price: string };
+        results.set(item.symbol, { price: parseFloat(item.price), change24h: 0 });
+      } catch { /* skip */ }
     }
   }
   return results;
@@ -336,6 +335,7 @@ async function runPriceCheck(pool: Pool): Promise<void> {
     if (enabledPairs.length === 0) return;
 
     const priceMap = await fetchPrices(enabledPairs);
+    if (priceMap.size > 0) lastPriceCheckAt = Date.now();
     if (priceMap.size === 0) return;
 
     const feeRate     = (db.settings.feeRate     ?? 0.04) / 100;
@@ -515,7 +515,6 @@ async function runPriceCheck(pool: Pool): Promise<void> {
     // ATOMIC: update signal statuses (CASE-based — never overwrites ICT scan's new signals)
     await patchSignalsBatch(pool, signalPatchMap);
 
-    lastPriceCheckAt = Date.now();
   } catch (err) {
     console.error('[worker] price check error:', err);
   } finally {
