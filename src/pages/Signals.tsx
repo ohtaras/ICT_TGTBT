@@ -1,11 +1,12 @@
 import { useState, useMemo } from 'react';
-import { Signal, Settings } from '../types';
+import { Signal, Settings, TradingPair } from '../types';
 import CandlestickChart, { PriceLine } from '../components/CandlestickChart';
-import { Radio, Clock, ArrowUpRight, ArrowDownRight, BarChart3, XCircle, ChevronDown, ChevronRight, Eye, EyeOff, Trash2, DollarSign } from 'lucide-react';
+import { Radio, Clock, ArrowUpRight, ArrowDownRight, BarChart3, XCircle, ChevronDown, ChevronRight, Eye, EyeOff, Trash2, DollarSign, TrendingUp } from 'lucide-react';
 
 interface SignalsProps {
   signals: Signal[];
   settings: Settings;
+  pairs: TradingPair[];
   onDeleteSignal: (id: string) => void;
 }
 
@@ -55,7 +56,11 @@ function groupByDate<T extends { timestamp: number }>(items: T[]): Record<string
   return groups;
 }
 
-export default function Signals({ signals, settings, onDeleteSignal }: SignalsProps) {
+export default function Signals({ signals, settings, pairs, onDeleteSignal }: SignalsProps) {
+  const priceMap = useMemo(
+    () => new Map(pairs.map(p => [p.symbol, p.currentPrice])),
+    [pairs]
+  );
   const pendingSignals = signals.filter((s) => s.status === 'pending');
   const triggeredSignals = signals.filter((s) => s.status === 'triggered');
   const expiredSignals = signals.filter((s) => s.status === 'expired');
@@ -122,6 +127,7 @@ export default function Signals({ signals, settings, onDeleteSignal }: SignalsPr
             <SignalsByDate
               signals={pendingSignals}
               settings={settings}
+              priceMap={priceMap}
               onOpenChart={openSignalChart}
               onDelete={onDeleteSignal}
             />
@@ -143,6 +149,7 @@ export default function Signals({ signals, settings, onDeleteSignal }: SignalsPr
             <SignalsByDate
               signals={triggeredSignals}
               settings={settings}
+              priceMap={priceMap}
               onOpenChart={openSignalChart}
               onDelete={onDeleteSignal}
             />
@@ -164,6 +171,7 @@ export default function Signals({ signals, settings, onDeleteSignal }: SignalsPr
             <SignalsByDate
               signals={expiredSignals}
               settings={settings}
+              priceMap={priceMap}
               onOpenChart={openSignalChart}
               onDelete={onDeleteSignal}
             />
@@ -185,6 +193,7 @@ export default function Signals({ signals, settings, onDeleteSignal }: SignalsPr
             <SignalsByDate
               signals={rejectedSignals}
               settings={settings}
+              priceMap={priceMap}
               onOpenChart={openSignalChart}
               onDelete={onDeleteSignal}
             />
@@ -268,11 +277,13 @@ function CollapsibleSection({
 function SignalsByDate({
   signals,
   settings,
+  priceMap,
   onOpenChart,
   onDelete,
 }: {
   signals: Signal[];
   settings: Settings;
+  priceMap: Map<string, number>;
   onOpenChart: (sig: Signal) => void;
   onDelete: (id: string) => void;
 }) {
@@ -320,6 +331,7 @@ function SignalsByDate({
                   key={sig.id}
                   signal={sig}
                   settings={settings}
+                  currentPrice={priceMap.get(sig.pair) ?? 0}
                   onClick={() => onOpenChart(sig)}
                   onDelete={() => onDelete(sig.id)}
                 />
@@ -335,17 +347,23 @@ function SignalsByDate({
 function SignalCard({
   signal,
   settings,
+  currentPrice,
   onClick,
   onDelete,
 }: {
   signal: Signal;
   settings: Settings;
+  currentPrice: number;
   onClick: () => void;
   onDelete: () => void;
 }) {
   const isBull = signal.type === 'BULLISH';
   const riskReward = Math.abs((signal.tp - signal.entry) / (signal.entry - signal.sl)).toFixed(1);
   const metrics = calculateRiskMetrics(signal, settings);
+
+  const distToEntry = currentPrice > 0
+    ? ((currentPrice - signal.entry) / signal.entry) * 100
+    : null;
 
   return (
     <div
@@ -389,6 +407,22 @@ function SignalCard({
             </span>
           </div>
         </div>
+
+        {/* Current price */}
+        {currentPrice > 0 && (
+          <div className="flex items-center gap-2 mb-2 text-xs">
+            <TrendingUp className="w-3 h-3 text-gray-400" />
+            <span className="text-gray-500">Τρέχουσα:</span>
+            <span className="font-mono font-semibold text-white">
+              ${currentPrice.toFixed(currentPrice < 1 ? 6 : 2)}
+            </span>
+            {distToEntry !== null && (
+              <span className={`font-mono ${Math.abs(distToEntry) < 1 ? 'text-amber-400 font-bold' : distToEntry > 0 === isBull ? 'text-gray-400' : 'text-gray-500'}`}>
+                ({distToEntry > 0 ? '+' : ''}{distToEntry.toFixed(2)}% vs entry)
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Entry / SL / TP */}
         <div className="grid grid-cols-3 gap-2 text-xs mb-3">

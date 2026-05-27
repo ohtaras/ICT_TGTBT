@@ -171,7 +171,7 @@ export default function App() {
           />
         );
       case 'signals':
-        return <Signals signals={signals} settings={settings} onDeleteSignal={handleDeleteSignal} />;
+        return <Signals signals={signals} settings={settings} pairs={pairs} onDeleteSignal={handleDeleteSignal} />;
       case 'trades':
         return <TradesPage trades={trades} settings={settings} onCloseTrade={handleCloseTrade} onDeleteTrade={handleDeleteTrade} />;
       case 'pairs':
