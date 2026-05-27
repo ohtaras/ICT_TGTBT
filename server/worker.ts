@@ -359,7 +359,7 @@ async function runPriceCheck(pool: Pool): Promise<void> {
     const pendingPairs = new Set(
       db.signals.filter(s => s.status === 'pending').map(s => s.pair)
     );
-    const candleRangeMap = new Map<string, { high: number; low: number }>();
+    const candleRangeMap = new Map<string, { high: number; low: number; lastClose: number }>();
     if (pendingPairs.size > 0) {
       await Promise.all([...pendingPairs].map(async (symbol) => {
         try {
@@ -370,10 +370,12 @@ async function runPriceCheck(pool: Pool): Promise<void> {
           if (!res.ok) return;
           const data = await res.json() as { code: string; data: string[][] };
           if (data.code !== '0' || !data.data?.length) return;
-          // Merge the last 2 candles (current in-progress + last completed)
+          // OKX newest-first: [0]=current incomplete candle, [1]=last completed candle
           const high = data.data.reduce((m, k) => Math.max(m, parseFloat(k[2])), 0);
           const low  = data.data.reduce((m, k) => Math.min(m, parseFloat(k[3])), Infinity);
-          candleRangeMap.set(symbol, { high, low });
+          // Use the last COMPLETED candle's close for SL violation check
+          const lastClose = parseFloat((data.data[1] ?? data.data[0])[4]);
+          candleRangeMap.set(symbol, { high, low, lastClose });
         } catch { /* best-effort */ }
       }));
     }
@@ -502,19 +504,22 @@ async function runPriceCheck(pool: Pool): Promise<void> {
       const d = priceMap.get(sig.pair);
       if (!d || d.price <= 0) continue;
 
-      // Invalidate signal if price has already breached the SL — setup is broken
-      // (runs regardless of autoTrading so the user can see why no trade was placed)
-      if (sig.type === 'BULLISH' && d.price < sig.sl) {
+      // Use 1m candle close (not tick price) for SL violation — avoids false rejections
+      // from brief wicks that recover within the same candle.
+      const range = candleRangeMap.get(sig.pair);
+      const slCheckPrice = range ? range.lastClose : d.price;
+
+      if (sig.type === 'BULLISH' && slCheckPrice < sig.sl) {
         signalPatchMap[sig.id] = {
           status: 'rejected' as const, rejectedAt: Date.now(),
-          rejectionReason: `SL violated @ $${d.price.toFixed(4)} — ICT setup invalidated`,
+          rejectionReason: `SL violated @ $${slCheckPrice.toFixed(4)} — ICT setup invalidated`,
         };
         continue;
       }
-      if (sig.type === 'BEARISH' && d.price > sig.sl) {
+      if (sig.type === 'BEARISH' && slCheckPrice > sig.sl) {
         signalPatchMap[sig.id] = {
           status: 'rejected' as const, rejectedAt: Date.now(),
-          rejectionReason: `SL violated @ $${d.price.toFixed(4)} — ICT setup invalidated`,
+          rejectionReason: `SL violated @ $${slCheckPrice.toFixed(4)} — ICT setup invalidated`,
         };
         continue;
       }
@@ -522,7 +527,6 @@ async function runPriceCheck(pool: Pool): Promise<void> {
       if (!db.settings.autoTrading) continue;
 
       // Check trigger via current tick price OR via 1m candle range (catches brief wicks)
-      const range = candleRangeMap.get(sig.pair);
       const rangeTriggered = range && (
         sig.type === 'BULLISH'
           ? range.low  <= sig.entry * 1.002 && range.low  >= sig.sl
