@@ -52,21 +52,23 @@ function getBalance(trades: Trade[], initialBalance: number): number {
   return initialBalance + closed.reduce((sum, t) => sum + t.pnl, 0);
 }
 
-// ============ BINANCE API ============
-const BINANCE_BASE = 'https://api.binance.com';
+// ============ BYBIT API (Binance returns HTTP 451 from Railway — geo-blocked) ============
+const BYBIT_BASE = 'https://api.bybit.com';
 
-async function fetchCandles(symbol: string, interval = '1h', limit = 200): Promise<Candle[]> {
+async function fetchCandles(symbol: string, interval = '60', limit = 200): Promise<Candle[]> {
   try {
-    const res = await fetch(`${BINANCE_BASE}/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`);
+    const res = await fetch(`${BYBIT_BASE}/v5/market/kline?category=linear&symbol=${symbol}&interval=${interval}&limit=${limit}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json() as unknown[][];
-    return data.map(k => ({
-      time:   k[0] as number,
-      open:   parseFloat(k[1] as string),
-      high:   parseFloat(k[2] as string),
-      low:    parseFloat(k[3] as string),
-      close:  parseFloat(k[4] as string),
-      volume: parseFloat(k[5] as string),
+    const data = await res.json() as { retCode: number; result: { list: string[][] } };
+    if (data.retCode !== 0) throw new Error(`Bybit error ${data.retCode}`);
+    // Bybit returns newest-first — reverse to oldest-first (same order as Binance)
+    return data.result.list.reverse().map(k => ({
+      time:   parseInt(k[0]),
+      open:   parseFloat(k[1]),
+      high:   parseFloat(k[2]),
+      low:    parseFloat(k[3]),
+      close:  parseFloat(k[4]),
+      volume: parseFloat(k[5]),
     }));
   } catch (err) {
     console.error(`[worker] candles error ${symbol}:`, err);
@@ -76,28 +78,26 @@ async function fetchCandles(symbol: string, interval = '1h', limit = 200): Promi
 
 async function fetchPrices(pairs: TradingPair[]): Promise<Map<string, { price: number; change24h: number }>> {
   const results = new Map<string, { price: number; change24h: number }>();
-  // Use ticker/price (lighter endpoint, less likely to be rate-limited/blocked)
-  // change24h not needed by worker — only for display, handled by browser-side fetch
   try {
-    const symbols = pairs.map(p => `"${p.symbol}"`).join(',');
-    const url = `${BINANCE_BASE}/api/v3/ticker/price?symbols=${encodeURIComponent('[' + symbols + ']')}`;
-    const res = await fetch(url);
+    // One call returns all linear (USDT perpetual) tickers
+    const res = await fetch(`${BYBIT_BASE}/v5/market/tickers?category=linear`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json() as { symbol: string; price: string }[];
-    for (const item of data) {
-      results.set(item.symbol, { price: parseFloat(item.price), change24h: 0 });
+    const data = await res.json() as {
+      retCode: number;
+      result: { list: { symbol: string; lastPrice: string; price24hPcnt: string }[] };
+    };
+    if (data.retCode !== 0) throw new Error(`Bybit error ${data.retCode}`);
+    const symbolSet = new Set(pairs.map(p => p.symbol));
+    for (const item of data.result.list) {
+      if (symbolSet.has(item.symbol)) {
+        results.set(item.symbol, {
+          price:     parseFloat(item.lastPrice),
+          change24h: parseFloat(item.price24hPcnt) * 100, // decimal → percent
+        });
+      }
     }
   } catch (err) {
-    console.error('[worker] batch prices failed, trying individually:', err);
-    for (const pair of pairs) {
-      try {
-        const url = `${BINANCE_BASE}/api/v3/ticker/price?symbol=${pair.symbol}`;
-        const res = await fetch(url);
-        if (!res.ok) { console.warn(`[worker] skip ${pair.symbol}`); continue; }
-        const item = await res.json() as { symbol: string; price: string };
-        results.set(item.symbol, { price: parseFloat(item.price), change24h: 0 });
-      } catch { /* skip */ }
-    }
+    console.error('[worker] fetchPrices error:', err);
   }
   return results;
 }
