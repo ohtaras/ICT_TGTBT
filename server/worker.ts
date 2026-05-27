@@ -55,15 +55,24 @@ function getBalance(trades: Trade[], initialBalance: number): number {
 // ============ OKX API (Binance=HTTP 451, Bybit=HTTP 403 from Railway cloud IPs) ============
 const OKX_BASE = 'https://www.okx.com';
 
+// Symbols confirmed missing on OKX — skip after first 51001 to avoid log spam
+const invalidOKXSymbols = new Set<string>();
+
 function toOKXId(symbol: string): string {
   return symbol.endsWith('USDT') ? symbol.slice(0, -4) + '-USDT' : symbol;
 }
 
 async function fetchCandles(symbol: string, interval = '1H', limit = 200): Promise<Candle[]> {
+  if (invalidOKXSymbols.has(symbol)) return [];
   try {
     const res = await fetch(`${OKX_BASE}/api/v5/market/candles?instId=${toOKXId(symbol)}&bar=${interval}&limit=${limit}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json() as { code: string; data: string[][] };
+    if (data.code === '51001') {
+      invalidOKXSymbols.add(symbol);
+      console.warn(`[worker] ${symbol} not found on OKX — skipping permanently`);
+      return [];
+    }
     if (data.code !== '0') throw new Error(`OKX error ${data.code}`);
     // OKX returns newest-first — reverse to oldest-first
     return data.data.reverse().map(k => ({
