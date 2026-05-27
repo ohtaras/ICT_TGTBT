@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { fmtTime } from '../utils/time';
 import {
   Settings as SettingsIcon,
   CheckCircle,
@@ -78,7 +79,7 @@ export default function SettingsPage({ settings, onSave }: SettingsProps) {
     const diff = Math.floor((Date.now() - ts) / 1000);
     if (diff < 60) return `${diff}s ago`;
     if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-    return new Date(ts).toLocaleTimeString('el-GR');
+    return fmtTime(ts);
   };
 
   const syncDot = () => {

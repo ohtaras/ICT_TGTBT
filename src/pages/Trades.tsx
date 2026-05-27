@@ -2,12 +2,11 @@ import { useState, useMemo } from 'react';
 import { Trade, Settings } from '../types';
 import CandlestickChart, { PriceLine, TradeMarker } from '../components/CandlestickChart';
 import { ArrowLeftRight, TrendingUp, TrendingDown, Clock, Calendar, BarChart3, ChevronDown, ChevronRight, Trash2, DollarSign, Eye, EyeOff } from 'lucide-react';
+import { fmtDateTime, fmtDayHeader } from '../utils/time';
 
 function formatDateTime(ts: number): string {
   if (!ts) return '—';
-  const d = new Date(ts);
-  return d.toLocaleDateString('el-GR', { day: '2-digit', month: '2-digit', year: 'numeric' }) +
-    ' ' + d.toLocaleTimeString('el-GR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  return fmtDateTime(ts);
 }
 
 function formatDuration(openTime: number, closeTime?: number): string {
@@ -58,12 +57,7 @@ function groupTradesByDate(trades: Trade[], useCloseTime: boolean = false): Reco
   const groups: Record<string, Trade[]> = {};
   trades.forEach((trade) => {
     const timestamp = useCloseTime && trade.closeTime ? trade.closeTime : trade.openTime;
-    const dateKey = new Date(timestamp).toLocaleDateString('el-GR', {
-      weekday: 'long',
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-    });
+    const dateKey = fmtDayHeader(timestamp);
     if (!groups[dateKey]) groups[dateKey] = [];
     groups[dateKey].push(trade);
   });
