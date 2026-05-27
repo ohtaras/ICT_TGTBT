@@ -178,7 +178,7 @@ export default function Signals({ signals, settings, pairs, onDeleteSignal }: Si
       {/* Rejected */}
       {showRejected && (
         <CollapsibleSection
-          title="🚫 Rejected (Υπήρχε Ανοιχτή Θέση)"
+          title="🚫 Rejected"
           count={rejectedSignals.length}
           color="red"
           defaultOpen={false}
