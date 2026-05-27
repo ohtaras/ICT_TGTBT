@@ -353,6 +353,31 @@ async function runPriceCheck(pool: Pool): Promise<void> {
     if (priceMap.size > 0) lastPriceCheckAt = Date.now();
     if (priceMap.size === 0) return;
 
+    // For pairs with pending signals, fetch the latest 1m candle range (high/low).
+    // The tick price (OKX spot) can differ from Binance by 0.1-0.5% on spikes,
+    // causing the trigger check to miss brief entries. The candle range catches them.
+    const pendingPairs = new Set(
+      db.signals.filter(s => s.status === 'pending').map(s => s.pair)
+    );
+    const candleRangeMap = new Map<string, { high: number; low: number }>();
+    if (pendingPairs.size > 0) {
+      await Promise.all([...pendingPairs].map(async (symbol) => {
+        try {
+          const res = await fetch(
+            `${OKX_BASE}/api/v5/market/candles?instId=${toOKXId(symbol)}&bar=1m&limit=2`,
+            { signal: AbortSignal.timeout(3000) }
+          );
+          if (!res.ok) return;
+          const data = await res.json() as { code: string; data: string[][] };
+          if (data.code !== '0' || !data.data?.length) return;
+          // Merge the last 2 candles (current in-progress + last completed)
+          const high = data.data.reduce((m, k) => Math.max(m, parseFloat(k[2])), 0);
+          const low  = data.data.reduce((m, k) => Math.min(m, parseFloat(k[3])), Infinity);
+          candleRangeMap.set(symbol, { high, low });
+        } catch { /* best-effort */ }
+      }));
+    }
+
     const feeRate     = (db.settings.feeRate     ?? 0.04) / 100;
     const fundingRate = (db.settings.fundingRate ?? 0.01) / 100;
     const FUNDING_INTERVAL = 8 * 60 * 60 * 1000;
@@ -496,7 +521,14 @@ async function runPriceCheck(pool: Pool): Promise<void> {
 
       if (!db.settings.autoTrading) continue;
 
-      if (!checkSignalTrigger(sig, d.price)) continue;
+      // Check trigger via current tick price OR via 1m candle range (catches brief wicks)
+      const range = candleRangeMap.get(sig.pair);
+      const rangeTriggered = range && (
+        sig.type === 'BULLISH'
+          ? range.low  <= sig.entry * 1.002 && range.low  >= sig.sl
+          : range.high >= sig.entry * 0.998 && range.high <= sig.sl
+      );
+      if (!checkSignalTrigger(sig, d.price) && !rangeTriggered) continue;
 
       if (newlyOpenedPairs.has(sig.pair)) {
         signalPatchMap[sig.id] = {
