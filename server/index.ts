@@ -90,6 +90,32 @@ app.get('/api/worker-status', (_req: Request, res: Response) => {
   res.json(getWorkerStatus());
 });
 
+// Diagnostic: test Binance connectivity from the server side
+app.get('/api/debug-worker', async (_req: Request, res: Response) => {
+  const results: Record<string, unknown> = {};
+  const BINANCE = 'https://api.binance.com';
+  const endpoints = [
+    { key: 'ping',         url: `${BINANCE}/api/v3/ping` },
+    { key: 'ticker_price', url: `${BINANCE}/api/v3/ticker/price?symbol=BTCUSDT` },
+    { key: 'ticker_24hr',  url: `${BINANCE}/api/v3/ticker/24hr?symbol=BTCUSDT` },
+    { key: 'klines',       url: `${BINANCE}/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=1` },
+  ];
+  for (const { key, url } of endpoints) {
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(5000) });
+      results[key] = { ok: r.ok, status: r.status };
+      if (r.ok && key === 'ticker_price') {
+        const d = await r.json() as { price: string };
+        results[key] = { ok: true, price: d.price };
+      }
+    } catch (err) {
+      results[key] = { ok: false, error: String(err) };
+    }
+  }
+  results['workerStatus'] = getWorkerStatus();
+  res.json(results);
+});
+
 // Optional API key auth — set API_KEY env var on Railway to enable
 const API_KEY = process.env.API_KEY;
 if (API_KEY) {
