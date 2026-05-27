@@ -474,10 +474,27 @@ async function runPriceCheck(pool: Pool): Promise<void> {
         continue;
       }
 
-      if (!db.settings.autoTrading) continue;
-
       const d = priceMap.get(sig.pair);
       if (!d || d.price <= 0) continue;
+
+      // Invalidate signal if price has already breached the SL — setup is broken
+      // (runs regardless of autoTrading so the user can see why no trade was placed)
+      if (sig.type === 'BULLISH' && d.price < sig.sl) {
+        signalPatchMap[sig.id] = {
+          status: 'rejected' as const, rejectedAt: Date.now(),
+          rejectionReason: `SL violated @ $${d.price.toFixed(4)} — ICT setup invalidated`,
+        };
+        continue;
+      }
+      if (sig.type === 'BEARISH' && d.price > sig.sl) {
+        signalPatchMap[sig.id] = {
+          status: 'rejected' as const, rejectedAt: Date.now(),
+          rejectionReason: `SL violated @ $${d.price.toFixed(4)} — ICT setup invalidated`,
+        };
+        continue;
+      }
+
+      if (!db.settings.autoTrading) continue;
 
       if (!checkSignalTrigger(sig, d.price)) continue;
 

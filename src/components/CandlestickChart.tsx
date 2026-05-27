@@ -3,8 +3,10 @@ import {
   createChart, IChartApi, ISeriesApi,
   CandlestickSeries, HistogramSeries, LineSeries,
   CandlestickData, Time, ColorType, LineStyle,
-  createSeriesMarkers,
+  createSeriesMarkers, TickMarkType,
 } from 'lightweight-charts';
+
+const GR_TZ = 'Europe/Athens';
 import { fetchCandles } from '../api/binance';
 import { Loader2, X } from 'lucide-react';
 
@@ -99,8 +101,28 @@ export default function CandlestickChart({ symbol, onClose, priceLines, tradeMar
         vertLine: { color: '#f59e0b', width: 1, style: 2, labelBackgroundColor: '#f59e0b' },
         horzLine: { color: '#f59e0b', width: 1, style: 2, labelBackgroundColor: '#f59e0b' },
       },
+      localization: {
+        locale: 'el-GR',
+        timeFormatter: (ts: number) =>
+          new Date(ts * 1000).toLocaleString('el-GR', {
+            timeZone: GR_TZ, day: '2-digit', month: '2-digit',
+            hour: '2-digit', minute: '2-digit',
+          }),
+      },
       rightPriceScale: { borderColor: '#374151', scaleMargins: { top: 0.1, bottom: 0.1 } },
-      timeScale: { borderColor: '#374151', timeVisible: true, secondsVisible: false },
+      timeScale: {
+        borderColor: '#374151', timeVisible: true, secondsVisible: false,
+        tickMarkFormatter: (ts: number, type: TickMarkType) => {
+          const d = new Date(ts * 1000);
+          if (type === TickMarkType.Year)
+            return d.toLocaleDateString('el-GR', { timeZone: GR_TZ, year: 'numeric' });
+          if (type === TickMarkType.Month)
+            return d.toLocaleDateString('el-GR', { timeZone: GR_TZ, month: 'short', year: '2-digit' });
+          if (type === TickMarkType.DayOfMonth)
+            return d.toLocaleDateString('el-GR', { timeZone: GR_TZ, day: '2-digit', month: '2-digit' });
+          return d.toLocaleTimeString('el-GR', { timeZone: GR_TZ, hour: '2-digit', minute: '2-digit' });
+        },
+      },
       width: container.clientWidth,
       height: container.clientHeight,
     });
